@@ -26,19 +26,30 @@ rm -rf ${CMD_OUT_DIR}
 mkdir -p ${CMD_OUT_DIR}/virtctl
 mkdir -p ${CMD_OUT_DIR}/dump
 
+integer_RE='^[0-9]+$'
+
+if [[ -z $BUILD_JOBS ]] || ! [[ $BUILD_JOBS =~ $integer_RE ]]; then
+    BUILD_JOBS="4"
+fi
+
+unset integer_RE
+
 # Build all binaries for amd64
 bazel build \
     --config=${ARCHITECTURE} \
+    --jobs=${BUILD_JOBS} \
     //tools/csv-generator/... //cmd/... //staging/src/kubevirt.io/client-go/examples/...
 
 # Copy dump binary to a reachable place outside of the build container
 bazel run \
     --config=${ARCHITECTURE} \
+    --jobs=${BUILD_JOBS} \
     :build-dump -- ${CMD_OUT_DIR}/dump/dump
 
 # build platform native virtctl explicitly
 bazel run \
     --config=${ARCHITECTURE} \
+    --jobs=${BUILD_JOBS} \
     :build-virtctl -- ${CMD_OUT_DIR}/virtctl/virtctl
 
 # cross-compile virtctl for
@@ -46,14 +57,17 @@ bazel run \
 # linux
 bazel run \
     --config=${ARCHITECTURE} \
+    --jobs=${BUILD_JOBS} \
     :build-virtctl-amd64 -- ${CMD_OUT_DIR}/virtctl/virtctl-${KUBEVIRT_VERSION}-linux-amd64
 
 # darwin
 bazel run \
     --config=${ARCHITECTURE} \
+    --jobs=${BUILD_JOBS} \
     :build-virtctl-darwin -- ${CMD_OUT_DIR}/virtctl/virtctl-${KUBEVIRT_VERSION}-darwin-amd64
 
 # windows
 bazel run \
     --config=${ARCHITECTURE} \
+    --jobs=${BUILD_JOBS} \
     :build-virtctl-windows -- ${CMD_OUT_DIR}/virtctl/virtctl-${KUBEVIRT_VERSION}-windows-amd64.exe
