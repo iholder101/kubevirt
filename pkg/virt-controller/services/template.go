@@ -443,6 +443,7 @@ func (t *templateService) renderLaunchManifest(vmi *v1.VirtualMachineInstance, i
 			).Render(requestedHookSidecar.Command))
 	}
 
+	toShareProcessNsInPod := false
 	if vmi.IsCPUDedicated() {
 		resourceOptions := []ResourceRendererOption{
 			WithEphemeralStorageRequest(),
@@ -473,6 +474,7 @@ func (t *templateService) renderLaunchManifest(vmi *v1.VirtualMachineInstance, i
 				Resources:       NewResourceRenderer(vmiResources.Limits, vmiResources.Requests, resourceOptions...).ResourceRequirements(),
 			},
 		)
+		toShareProcessNsInPod = true
 	}
 
 	podAnnotations, err := generatePodAnnotations(vmi)
@@ -539,6 +541,7 @@ func (t *templateService) renderLaunchManifest(vmi *v1.VirtualMachineInstance, i
 			SchedulerName:                 vmi.Spec.SchedulerName,
 			Tolerations:                   vmi.Spec.Tolerations,
 			TopologySpreadConstraints:     vmi.Spec.TopologySpreadConstraints,
+			ShareProcessNamespace:         pointer.Bool(toShareProcessNsInPod),
 		},
 	}
 
