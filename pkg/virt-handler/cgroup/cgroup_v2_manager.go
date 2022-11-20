@@ -204,3 +204,40 @@ func (v *v2Manager) GetCgroupThreads() ([]int, error) {
 func (v *v2Manager) SetCpuSet(subcgroup string, cpulist []int) error {
 	return setCpuSetHelper(v, subcgroup, cpulist)
 }
+
+func (v *v2Manager) MakeThreaded() error {
+	// TODO: ihol3 link ticket for runc?
+	const (
+		cgTypeFile   = "cgroup.type"
+		typeThreaded = "threaded"
+	)
+
+	cgroupType, err := runc_cgroups.ReadFile(v.dirPath, cgTypeFile)
+	log.Log.Infof("ihol3 MakeThreaded(): cgroup type before any changes: %s", cgroupType)
+	if err != nil {
+		return err
+	}
+	cgroupType = strings.TrimSpace(cgroupType)
+
+	if cgroupType == typeThreaded {
+		log.Log.Infof("ihol3 MakeThreaded(): cgroup already threaded")
+		return nil
+	}
+
+	err = runc_cgroups.WriteFile(v.dirPath, cgTypeFile, typeThreaded)
+	if err != nil {
+		return err
+	}
+
+	cgroupType, err = runc_cgroups.ReadFile(v.dirPath, cgTypeFile)
+	if err != nil {
+		return err
+	}
+	cgroupType = strings.TrimSpace(cgroupType)
+
+	if cgroupType != typeThreaded {
+		return fmt.Errorf("could not change cgroup type (%s) to %s", cgroupType, typeThreaded)
+	}
+
+	return nil
+}
