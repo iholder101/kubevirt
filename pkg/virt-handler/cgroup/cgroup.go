@@ -77,6 +77,8 @@ type Manager interface {
 	// Get list of threads attached to cgroup
 	GetCgroupThreads() ([]int, error)
 
+	GetCgroupThreadsWithFilter(func(string) bool) ([]int, error)
+
 	MakeThreaded() error
 }
 

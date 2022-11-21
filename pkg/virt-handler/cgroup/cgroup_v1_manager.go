@@ -159,8 +159,12 @@ func (v *v1Manager) CreateChildCgroup(name string, subSystems ...string) (Manage
 	return NewManagerFromPath(newControllerPaths)
 }
 
+func (v *v1Manager) GetCgroupThreadsWithFilter(filter func(string) bool) ([]int, error) {
+	return getCgroupThreadsHelper(v, "tasks", filter)
+}
+
 func (v *v1Manager) GetCgroupThreads() ([]int, error) {
-	return getCgroupThreadsHelper(v, "tasks")
+	return v.GetCgroupThreadsWithFilter(nil)
 }
 
 func (v *v1Manager) SetCpuSet(subcgroup string, cpulist []int) error {
