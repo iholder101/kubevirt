@@ -45,6 +45,24 @@ var (
 	defaultDeviceRules []*devices.Rule
 )
 
+const (
+	// Cgroup subsystems
+	CgroupSubsystemCpu       string = "cpu"
+	CgroupSubsystemCpuacct   string = "cpuacct"
+	CgroupSubsystemCpuset    string = "cpuset"
+	CgroupSubsystemMemory    string = "memory"
+	CgroupSubsystemDevices   string = "devices"
+	CgroupSubsystemFreezer   string = "freezer"
+	CgroupSubsystemNetCls    string = "net_cls"
+	CgroupSubsystemBlkio     string = "blkio"
+	CgroupSubsystemIo        string = "io"
+	CgroupSubsystemPerfEvent string = "perf_event"
+	CgroupSubsystemNetPrio   string = "net_prio"
+	CgroupSubsystemHugetlb   string = "hugetlb"
+	CgroupSubsystemPids      string = "pids"
+	CgroupSubsystemRdma      string = "rdma"
+)
+
 type execVirtChrootFunc func(r *runc_configs.Resources, subsystemPaths map[string]string, rootless bool, version CgroupVersion) error
 type getCurrentlyDefinedRulesFunc func(runcManager runc_cgroups.Manager) ([]*devices.Rule, error)
 

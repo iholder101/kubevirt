@@ -18,6 +18,22 @@ import (
 
 var rulesPerPid = make(map[string][]*devices.Rule)
 
+type cgroupV2File string
+
+const (
+	subtreeControl cgroupV2File = "cgroup.subtree_control"
+	cgroupType     cgroupV2File = "cgroup.type"
+)
+
+type cgroupV2Type string
+
+const (
+	domain         cgroupV2Type = "domain"
+	threaded       cgroupV2Type = "threaded"
+	domainThreaded cgroupV2Type = "domainThreaded"
+	domainInvalid  cgroupV2Type = "domainInvalid"
+)
+
 type v2Manager struct {
 	runc_cgroups.Manager
 	dirPath        string

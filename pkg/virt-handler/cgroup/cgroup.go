@@ -89,17 +89,11 @@ func managerPath(taskPath string) string {
 	return retPath
 }
 
-// NewManagerFromPid initializes a new cgroup manager from VMI's pid.
-// The pid is expected to VMI's pid from the host's viewpoint.
-func NewManagerFromPid(pid int) (manager Manager, err error) {
+// NewManagerFromPath returns a new manager that corresponds to the provided cgroup paths.
+// Note that for cgroups v2 the map is expected to include only one value which is the unified cgroup
+// path. The key is expected to be an empty string ("").
+func NewManagerFromPath(controllerPaths map[string]string) (manager Manager, err error) {
 	const isRootless = false
-	var version CgroupVersion
-
-	procCgroupBasePath := filepath.Join(procMountPoint, strconv.Itoa(pid), cgroupStr)
-	controllerPaths, err := runc_cgroups.ParseCgroupFile(procCgroupBasePath)
-	if err != nil {
-		return nil, fmt.Errorf("cannot initialize new cgroup manager. err: %v", err)
-	}
 
 	config := &configs.Cgroup{
 		Path:      HostCgroupBasePath,
@@ -107,6 +101,7 @@ func NewManagerFromPid(pid int) (manager Manager, err error) {
 		Rootless:  isRootless,
 	}
 
+	var version CgroupVersion
 	if runc_cgroups.IsCgroup2UnifiedMode() {
 		version = V2
 		slicePath := filepath.Join(cgroupBasePath, controllerPaths[""])
@@ -128,19 +123,37 @@ func NewManagerFromPid(pid int) (manager Manager, err error) {
 	if err != nil {
 		log.Log.Errorf("error occurred while initialized a new cgroup %s manager: %v", version, err)
 	} else {
-		log.Log.Infof("initialized a new cgroup %s manager successfully. controllerPaths: %v, procCgroupBasePath: %s", version, controllerPaths, procCgroupBasePath)
+		log.Log.Infof("initialized a new cgroup %s manager successfully. controllerPaths: %v", version, controllerPaths)
 	}
 
 	return manager, err
 }
 
+func NewManagerFromPid(pid int) (manager Manager, err error) {
+	procCgroupBasePath := filepath.Join(procMountPoint, strconv.Itoa(pid), cgroupStr)
+
+	controllerPaths, err := runc_cgroups.ParseCgroupFile(procCgroupBasePath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot initialize new cgroup manager. err: %v", err)
+	}
+
+	return NewManagerFromPath(controllerPaths)
+}
+
+// TODO: ihol3 rename to VMI
+
+// NewManagerFromVM returns a manager which corresponds to the VM's compute container's cgroup.
 func NewManagerFromVM(vmi *v1.VirtualMachineInstance) (Manager, error) {
 	isolationRes, err := detectVMIsolation(vmi, "")
 	if err != nil {
 		return nil, err
 	}
 
-	return NewManagerFromPid(isolationRes.Pid())
+	virtLauncherPid := isolationRes.Pid()
+	log.Log.Infof("creating new cgroup for vmi %s, virt-launcher's pid: %d", vmi.Name, virtLauncherPid)
+
+	// TODO: ihol3 refactor PID also?
+	return NewManagerFromPid(virtLauncherPid)
 }
 
 // GetGlobalCpuSetPath returns the CPU set of the main cgroup slice
