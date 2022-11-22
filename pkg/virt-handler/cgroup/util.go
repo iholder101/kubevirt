@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/opencontainers/runc/libcontainer/configs"
 
 	"github.com/opencontainers/runc/libcontainer/devices"
 
@@ -255,4 +256,50 @@ func setCpuSetHelper(manager Manager, subCgroup string, cpusList []int) error {
 	wVal := strings.Trim(strings.Replace(fmt.Sprint(cpusList), " ", ",", -1), "[]")
 
 	return runc_cgroups.WriteFile(subSysPath, "cpuset.cpus", wVal)
+}
+
+func getDeafulCgroupConfig() *configs.Cgroup {
+	const isRootless = false
+
+	return &configs.Cgroup{
+		Path:      HostCgroupBasePath,
+		Resources: &configs.Resources{},
+		Rootless:  isRootless,
+	}
+}
+
+func formatCgroupPaths(controllerPaths map[string]string) map[string]string {
+	if runc_cgroups.IsCgroup2UnifiedMode() {
+		newPath := controllerPaths[""]
+		if !strings.HasPrefix(newPath, cgroupBasePath) {
+			newPath = filepath.Join(cgroupBasePath, newPath)
+		} else if strings.HasPrefix(newPath, HostRootPath) {
+			newPath = strings.ReplaceAll(newPath, HostRootPath, "")
+		}
+
+		controllerPaths[""] = newPath
+	} else {
+		for subsystem, path := range controllerPaths {
+			if path == "" {
+				continue
+			}
+			newPath := path
+			if strings.Contains(newPath, HostCgroupBasePath) {
+				newPath = strings.ReplaceAll(newPath, HostCgroupBasePath, "")
+			} else if strings.Contains(newPath, cgroupBasePath) {
+				newPath = strings.ReplaceAll(newPath, cgroupBasePath, "")
+			}
+
+			if !strings.Contains(newPath, subsystem) {
+				newPath = filepath.Join(subsystem, path)
+			}
+			if !strings.Contains(newPath, "/") {
+				newPath = filepath.Join("/", path)
+			}
+
+			controllerPaths[subsystem] = newPath
+		}
+	}
+
+	return controllerPaths
 }

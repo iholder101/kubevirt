@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -29,7 +28,9 @@ type v1Manager struct {
 	getCurrentlyDefinedRules getCurrentlyDefinedRulesFunc
 }
 
-func newV1Manager(config *runc_configs.Cgroup, controllerPaths map[string]string) (Manager, error) {
+func newV1Manager(controllerPaths map[string]string) (Manager, error) {
+	config := getDeafulCgroupConfig()
+
 	runcManager, err := runc_fs.NewManager(config, controllerPaths)
 	if err != nil {
 		return nil, fmt.Errorf("cannot initialize new cgroup manager. err: %v", err)
@@ -116,41 +117,15 @@ func (v *v1Manager) GetCpuSet() (string, error) {
 	return getCpuSetPath(v, "cpuset.cpus")
 }
 
-func rw_filecontents(fReadPath string, fWritePath string) (err error) {
-	rFile, err := os.Open(fReadPath)
-	if err != nil {
-		return fmt.Errorf("Open failed: %s (%v)", fReadPath, err)
-	}
-	defer rFile.Close()
-
-	wFile, err := os.OpenFile(fWritePath, os.O_RDWR, 0755)
-	if err != nil {
-		return fmt.Errorf("OpenFile failed: %s (%v)", fWritePath, err)
-	}
-	defer wFile.Close()
-
-	count, err := io.Copy(wFile, rFile)
-	if err != nil {
-		return fmt.Errorf("Copy filed: %s -> %s (%v), count=%d", fReadPath, fWritePath, err, count)
-	}
-
-	return nil
-}
-
 // Attach TID to cgroup. Optionally on a subcgroup of
 // the pods control group (if subcgroup != nil).
-func (v *v1Manager) AttachTID(subSystem string, subCgroup string, tid int) error {
-	cgroupPath, err := v.GetBasePathToHostSubsystem(subSystem)
+func (v *v1Manager) AttachTask(id int, subSystem string, _ TaskType) error {
+	subSystemPath, err := v.GetBasePathToHostSubsystem(subSystem)
 	if err != nil {
 		return err
 	}
-	if subCgroup != "" {
-		cgroupPath = filepath.Join(cgroupPath, subCgroup)
-	}
 
-	wVal := strconv.Itoa(tid)
-
-	err = runc_cgroups.WriteFile(cgroupPath, "tasks", wVal)
+	err = runc_cgroups.WriteFile(subSystemPath, "tasks", strconv.Itoa(id))
 	if err != nil {
 		return err
 	}
@@ -158,43 +133,30 @@ func (v *v1Manager) AttachTID(subSystem string, subCgroup string, tid int) error
 	return nil
 }
 
-func init_cgroup(groupPath string, newCgroupName string, subSystem string) (err error) {
-	newGroupPath := filepath.Join(groupPath, newCgroupName)
-	if _, err := os.Stat(newGroupPath); !errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	err = util.MkdirAllWithNosec(newGroupPath)
-	if err != nil {
-		log.Log.Infof("mkdir %s failed", newGroupPath)
-		return err
-	}
-	if subSystem == "cpuset" {
-		for _, fName := range []string{"cpuset.mems", "cpuset.cpus"} {
-			rPath := filepath.Join(groupPath, fName)
-			wPath := filepath.Join(newGroupPath, fName)
+func (v *v1Manager) CreateChildCgroup(name string, subSystems ...string) (Manager, error) {
+	newControllerPaths := make(map[string]string, len(subSystems))
 
-			err = rw_filecontents(rPath, wPath)
-			if err != nil {
-				return err
-			}
+	for _, subSystem := range subSystems {
+		subSysPath, err := v.GetBasePathToHostSubsystem(subSystem)
+		if err != nil {
+			return nil, err
 		}
+
+		newGroupPath := filepath.Join(subSysPath, name)
+		if _, err := os.Stat(newGroupPath); !errors.Is(err, os.ErrNotExist) {
+			newControllerPaths[subSystem] = newGroupPath
+			continue
+		}
+
+		err = util.MkdirAllWithNosec(newGroupPath)
+		if err != nil {
+			return nil, err
+		}
+
+		newControllerPaths[subSystem] = newGroupPath
 	}
 
-	return nil
-}
-
-func (v *v1Manager) CreateChildCgroup(name string, subSystem string) error {
-	subSysPath, err := v.GetBasePathToHostSubsystem(subSystem)
-	if err != nil {
-		return err
-	}
-	err = init_cgroup(subSysPath, name, subSystem)
-	if err != nil {
-		log.Log.Infof("cannot create child cgroup. err: %v", err)
-		return err
-	}
-
-	return nil
+	return NewManagerFromPath(newControllerPaths)
 }
 
 func (v *v1Manager) GetCgroupThreads() ([]int, error) {

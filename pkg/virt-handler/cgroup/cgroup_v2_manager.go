@@ -2,16 +2,18 @@ package cgroup
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+
+	"kubevirt.io/client-go/log"
 
 	runc_cgroups "github.com/opencontainers/runc/libcontainer/cgroups"
 	runc_fs "github.com/opencontainers/runc/libcontainer/cgroups/fs2"
 	runc_configs "github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/opencontainers/runc/libcontainer/devices"
-
-	"kubevirt.io/client-go/log"
 
 	"kubevirt.io/kubevirt/pkg/util"
 )
@@ -34,6 +36,13 @@ const (
 	domainInvalid  cgroupV2Type = "domainInvalid"
 )
 
+type cgroupV2SubtreeCtrlAction string
+
+const (
+	subtreeCtrlAdd    cgroupV2SubtreeCtrlAction = "+"
+	subtreeCtrlRemove cgroupV2SubtreeCtrlAction = "-"
+)
+
 type v2Manager struct {
 	runc_cgroups.Manager
 	dirPath        string
@@ -41,7 +50,9 @@ type v2Manager struct {
 	execVirtChroot execVirtChrootFunc
 }
 
-func newV2Manager(config *runc_configs.Cgroup, dirPath string) (Manager, error) {
+func newV2Manager(dirPath string) (Manager, error) {
+	config := getDeafulCgroupConfig()
+
 	runcManager, err := runc_fs.NewManager(config, dirPath)
 	if err != nil {
 		return nil, err
@@ -91,60 +102,94 @@ func (v *v2Manager) GetCpuSet() (string, error) {
 	return getCpuSetPath(v, "cpuset.cpus.effective")
 }
 
-func (v *v2Manager) CreateChildCgroup(name string, subSystem string) error {
-	subSysPath, err := v.GetBasePathToHostSubsystem(subSystem)
-	if err != nil {
-		return err
+func (v *v2Manager) mutateSubtreeControl(subSystems string, action cgroupV2SubtreeCtrlAction) error {
+	return runc_cgroups.WriteFile(v.dirPath, string(subtreeControl), fmt.Sprintf("%s%s", string(action), subSystems))
+}
+
+func (v *v2Manager) CreateChildCgroup(name string, subSystems ...string) (Manager, error) {
+	newGroupPath := filepath.Join(v.dirPath, name)
+	if _, err := os.Stat(newGroupPath); !errors.Is(err, os.ErrNotExist) {
+		return NewManagerFromPath(map[string]string{"": newGroupPath})
 	}
 
-	newGroupPath := filepath.Join(subSysPath, name)
-	if _, err = os.Stat(newGroupPath); !errors.Is(err, os.ErrNotExist) {
-		return nil
+	log := func(s string) {
+		log.Log.Infof("ihol3 CreateChildCgroup() %s", s)
 	}
 
-	// Write "+subsystem" to cgroup.subtree_control
-	wVal := "+" + subSystem
-	err = runc_cgroups.WriteFile(subSysPath, "cgroup.subtree_control", wVal)
-	if err != nil {
-		return err
+	readFromFile := func(dir, file string) string {
+		fileContent, err := runc_cgroups.ReadFile(dir, file)
+		if err != nil {
+			log("readFromFile() ERR: " + err.Error())
+		}
+
+		return fileContent
 	}
 
-	// Create new cgroup directory
-	err = util.MkdirAllWithNosec(newGroupPath)
-	if err != nil {
-		log.Log.Infof("mkdir %s failed", newGroupPath)
-		return err
+	log("newGroupPath: " + newGroupPath)
+
+	// TODO: ihol3 subsystem and controller terminology is mxied up here
+	// Remove unnecessary controllers from subtree control. This is crucial in order to make the cgroup threaded
+	curSubtreeControllers := readFromFile(v.dirPath, string(subtreeControl))
+	for _, curSubtreeController := range strings.Split(curSubtreeControllers, " ") {
+		if curSubtreeController == "" {
+			continue
+		}
+
+		for _, subSystem := range subSystems {
+			if curSubtreeController == subSystem {
+				continue
+			}
+		}
+
+		log("trying to remove controller " + curSubtreeController + " from subtree control")
+		err := v.mutateSubtreeControl(curSubtreeController, subtreeCtrlRemove)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// Enable threaded cgroup controller
-	err = runc_cgroups.WriteFile(newGroupPath, "cgroup.type", "threaded")
-	if err != nil {
-		return err
+	// Configure the given subsystems to be inherited by the new cgroup
+	for _, subSystem := range subSystems {
+		err := v.mutateSubtreeControl(subSystem, subtreeCtrlAdd)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// Write "+subsystem" to newcgroup/cgroup.subtree_control
-	wVal = "+" + subSystem
-	err = runc_cgroups.WriteFile(newGroupPath, "cgroup.subtree_control", wVal)
+	log("parent subtree control: " + readFromFile(v.dirPath, string(subtreeControl)))
+
+	// Create a new cgroup directory
+	err := util.MkdirAllWithNosec(newGroupPath)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed creating cgroup directory %s: %v", newGroupPath, err)
 	}
-	return nil
+
+	log("parent controllers: " + readFromFile(v.dirPath, "cgroup.controllers"))
+	log("child controllers: " + readFromFile(newGroupPath, "cgroup.controllers"))
+	log("cgroup type: " + readFromFile(newGroupPath, "cgroup.type"))
+
+	newManager, err := NewManagerFromPath(map[string]string{"": newGroupPath})
+	if err != nil {
+		return newManager, err
+	}
+
+	return newManager, nil
 }
 
 // Attach TID to cgroup. Optionally on a subcgroup of
 // the pods control group (if subcgroup != nil).
-func (v *v2Manager) AttachTID(subSystem string, subCgroup string, tid int) error {
-	cgroupPath, err := v.GetBasePathToHostSubsystem(subSystem)
-	if err != nil {
-		return err
-	}
-	if subCgroup != "" {
-		cgroupPath = filepath.Join(cgroupPath, subCgroup)
+func (v *v2Manager) AttachTask(id int, _ string, taskType TaskType) error {
+	var targetFile string
+	switch taskType {
+	case Thread:
+		targetFile = "cgroup.threads"
+	case Process:
+		targetFile = "cgroup.procs"
+	default:
+		return fmt.Errorf("task type %v is not valid", taskType)
 	}
 
-	wVal := strconv.Itoa(tid)
-
-	err = runc_cgroups.WriteFile(cgroupPath, "cgroup.threads", wVal)
+	err := runc_cgroups.WriteFile(v.dirPath, targetFile, strconv.Itoa(id))
 	if err != nil {
 		return err
 	}

@@ -39,6 +39,13 @@ import (
 
 //go:generate mockgen -source $GOFILE -package=$GOPACKAGE -destination=generated_mock_$GOFILE
 
+type TaskType int
+
+const (
+	Thread TaskType = iota
+	Process
+)
+
 // Manager is the only interface to use in order to inspect, update or define cgroup properties.
 // This interface is agnostic to cgroups version (supports v1 and v2) and is completely transparent from the
 // users perspective. To achieve this "runc"'s cgroup manager is being levitated. This package's implementation
@@ -61,10 +68,11 @@ type Manager interface {
 	SetCpuSet(subcgroup string, cpulist []int) error
 
 	// Create new child cgroup
-	CreateChildCgroup(name string, subSystem string) error
+	CreateChildCgroup(name string, subSystems ...string) (Manager, error)
 
-	// Attach TID to cgroup
-	AttachTID(subSystem string, subCgroup string, tid int) error
+	// Note: task type is ignored for V1, subSystem is ignored for V2
+	// TODO: ihol3 maybe refactor this? the unused parameters for v1/v2 bug my soul
+	AttachTask(id int, subSystem string, taskType TaskType) error
 
 	// Get list of threads attached to cgroup
 	GetCgroupThreads() ([]int, error)
@@ -75,49 +83,23 @@ type runcManager interface {
 	runc_cgroups.Manager
 }
 
-// If a task is moved into a sub-cgroup, we want the manager to
-// reference the root cgroup, not the sub-cgroup.
-// Currently the only sub-cgroup create is named "housekeeping".
-
-func managerPath(taskPath string) string {
-	retPath := taskPath
-	s := strings.Split(taskPath, "/")
-	if s[len(s)-1] == "housekeeping" {
-		fStr := "/" + strings.Join(s[1:len(s)-1], "/") + "/"
-		retPath = fStr
-	}
-	return retPath
-}
-
 // NewManagerFromPath returns a new manager that corresponds to the provided cgroup paths.
 // Note that for cgroups v2 the map is expected to include only one value which is the unified cgroup
 // path. The key is expected to be an empty string ("").
 func NewManagerFromPath(controllerPaths map[string]string) (manager Manager, err error) {
-	const isRootless = false
-
-	config := &configs.Cgroup{
-		Path:      HostCgroupBasePath,
-		Resources: &configs.Resources{},
-		Rootless:  isRootless,
-	}
-
 	var version CgroupVersion
+
 	if runc_cgroups.IsCgroup2UnifiedMode() {
 		version = V2
-		slicePath := filepath.Join(cgroupBasePath, controllerPaths[""])
-		slicePath = managerPath(slicePath)
-		manager, err = newV2Manager(config, slicePath)
+		controllerPaths = formatCgroupPaths(controllerPaths)
+		slicePath := controllerPaths[""]
+
+		manager, err = newV2Manager(slicePath)
 	} else {
 		version = V1
-		for subsystem, path := range controllerPaths {
-			if path == "" {
-				continue
-			}
-			path = managerPath(path)
-			controllerPaths[subsystem] = filepath.Join("/", subsystem, path)
-		}
+		controllerPaths = formatCgroupPaths(controllerPaths)
 
-		manager, err = newV1Manager(config, controllerPaths)
+		manager, err = newV1Manager(controllerPaths)
 	}
 
 	if err != nil {
