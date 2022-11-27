@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	v1 "kubevirt.io/api/core/v1"
 	"kubevirt.io/client-go/log"
 
 	runc_cgroups "github.com/opencontainers/runc/libcontainer/cgroups"
@@ -242,6 +243,63 @@ func (v *v2Manager) MakeThreaded() error {
 	if cgroupType != typeThreaded {
 		return fmt.Errorf("could not change cgroup type (%s) to %s", cgroupType, typeThreaded)
 	}
+
+	return nil
+}
+
+func (v *v2Manager) HandleDedicatedCpus(vmi *v1.VirtualMachineInstance) error {
+	dedicatedCpusCgroupManager, qemuKvmPid, vcpuTids, err := dedicatedCpuHelper(v, vmi)
+	if err != nil {
+		return err
+	}
+
+	err = dedicatedCpusCgroupManager.AttachTask(qemuKvmPid, "", Process)
+	if err != nil {
+		log.Log.Infof("ihol3 attach qemu: %v", err)
+		return err
+	}
+
+	housekeepingCgroupManager, err := dedicatedCpusCgroupManager.CreateChildCgroup("housekeeping", CgroupSubsystemCpuset)
+	if err != nil {
+		log.Log.Infof("ihol3 create hk cgroup: %v", err)
+		return err
+	}
+
+	err = housekeepingCgroupManager.MakeThreaded()
+	if err != nil {
+		log.Log.Infof("ihol3 error making cgroup threaded: %v", err)
+		return err
+	}
+
+	for _, vcpuTid := range vcpuTids {
+		err = housekeepingCgroupManager.AttachTask(vcpuTid, "", Thread)
+		if err != nil {
+			log.Log.Infof("ihol3 attach vcpus: %v", err)
+			return err
+		}
+	}
+
+	cpuset, err := dedicatedCpusCgroupManager.GetCpuSet()
+	if err != nil {
+		log.Log.Infof("ihol3 getcpuset: %v", err)
+		return err
+	}
+
+	if len(cpuset) < 2 {
+		err = fmt.Errorf("ihol3 cpuset is expected to be at least of length 2 (for 1 vCPU and 1 extra code): %v", err)
+		log.Log.Infof("%v", err)
+		return err
+	}
+
+	housekeepingCore := cpuset[len(cpuset)-1:]
+	log.Log.Infof("ihol3 housekeeping core: %d", housekeepingCore[0])
+	err = housekeepingCgroupManager.SetCpuSet(housekeepingCore)
+	if err != nil {
+		log.Log.Infof("ihol3 setcpuset: %v", err)
+		return err
+	}
+
+	log.Log.Infof("ihol3 YAY all ok :D")
 
 	return nil
 }

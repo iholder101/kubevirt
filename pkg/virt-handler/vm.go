@@ -2813,6 +2813,19 @@ func (d *VirtualMachineController) vmUpdateHelperDefault(origVMI *v1.VirtualMach
 	//	}
 	//}
 
+	if vmi.IsCPUDedicated() {
+		cgroupManager, err := cgroup.NewManagerFromVM(vmi)
+		if err != nil {
+			log.Log.Infof("ihol3 error compute cgroup manager: %v", err)
+			return err
+		}
+
+		err = cgroupManager.HandleDedicatedCpus(vmi)
+		if err != nil {
+			return err
+		}
+	}
+
 	if !domainExists {
 		d.recorder.Event(vmi, k8sv1.EventTypeNormal, v1.Created.String(), VMIDefined)
 	}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	v1 "kubevirt.io/api/core/v1"
 	"kubevirt.io/client-go/log"
 
 	cgroup_devices "github.com/opencontainers/runc/libcontainer/cgroups/devices"
@@ -173,5 +174,30 @@ func (v *v1Manager) SetCpuSet(cpulist []int) error {
 
 func (v *v1Manager) MakeThreaded() error {
 	// cgroup v1 does not have the notion of a "threaded" cgroup.r
+	return nil
+}
+
+func (v *v1Manager) HandleDedicatedCpus(vmi *v1.VirtualMachineInstance) error {
+	dedicatedCpusCgroupManager, qemuKvmPid, vcpuTids, err := dedicatedCpuHelper(v, vmi)
+	if err != nil {
+		return err
+	}
+
+	err = dedicatedCpusCgroupManager.AttachTask(qemuKvmPid, CgroupSubsystemCpuset, None)
+	if err != nil {
+		log.Log.Infof("ihol3 attach qemu: %v", err)
+		return err
+	}
+
+	for _, vcpuTid := range vcpuTids {
+		err = dedicatedCpusCgroupManager.AttachTask(vcpuTid, CgroupSubsystemCpuset, None)
+		if err != nil {
+			log.Log.Infof("ihol3 attach vcpus: %v", err)
+			return err
+		}
+	}
+
+	log.Log.Infof("ihol3 YAY all ok :D")
+
 	return nil
 }

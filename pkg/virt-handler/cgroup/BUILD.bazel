@@ -6,6 +6,7 @@ go_library(
         "cgroup.go",
         "cgroup_v1_manager.go",
         "cgroup_v2_manager.go",
+        "dedicated_cpus.go",
         "generated_mock_cgroup.go",
         "util.go",
     ],
@@ -14,6 +15,7 @@ go_library(
     deps = [
         "//pkg/util:go_default_library",
         "//pkg/util/hardware:go_default_library",
+        "//pkg/virt-controller/services:go_default_library",
         "//pkg/virt-handler/isolation:go_default_library",
         "//staging/src/kubevirt.io/api/core/v1:go_default_library",
         "//staging/src/kubevirt.io/client-go/log:go_default_library",
