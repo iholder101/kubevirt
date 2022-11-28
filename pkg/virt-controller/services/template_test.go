@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 
+	"kubevirt.io/kubevirt/pkg/util/hardware"
 	"kubevirt.io/kubevirt/pkg/virt-controller/watch/topology"
 
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -3447,6 +3448,7 @@ var _ = Describe("Template", func() {
 					IsolateEmulatorThread: true,
 					Realtime:              &v1.Realtime{},
 				}
+				vmi.UID = "bb65b771-51b4-4b73-a35e-4d9ccac5fb5a"
 
 				pod, err := svc.RenderLaunchManifest(vmi)
 				arch := config.GetClusterCPUArch()
@@ -3455,6 +3457,51 @@ var _ = Describe("Template", func() {
 				expectedMemory.Add(*GetMemoryOverhead(vmi, arch))
 				expectedMemory.Add(*vmi.Spec.Domain.Resources.Requests.Memory())
 				Expect(pod.Spec.Containers[0].Resources.Requests.Memory().Value()).To(Equal(expectedMemory.Value()))
+			})
+		})
+
+		Context("with dedicated CPUs", func() {
+
+			BeforeEach(func() {
+				config, kvInformer, svc = configFactory(defaultArch)
+			})
+
+			getVmiWithDedicatedCpus := func() *v1.VirtualMachineInstance {
+				vmi := newMinimalWithContainerDisk("testvmi")
+				vmi.Spec.Domain.CPU = &v1.CPU{
+					Cores:                 2,
+					DedicatedCPUPlacement: true,
+				}
+				vmi.UID = "bb65b771-51b4-4b73-a35e-4d9ccac5fb5a"
+
+				return vmi
+			}
+
+			It("should render a dedicated cpu container", func() {
+				vmi := getVmiWithDedicatedCpus()
+
+				pod, err := svc.RenderLaunchManifest(vmi)
+				Expect(err).ToNot(HaveOccurred())
+
+				var dedicatedCpusContainer *kubev1.Container
+
+				for _, container := range pod.Spec.Containers {
+					if container.Name == DedicatedCpusContainerName {
+						dedicatedCpusContainer = &container
+						break
+					}
+				}
+				Expect(dedicatedCpusContainer).ToNot(BeNil())
+
+				Expect(dedicatedCpusContainer.Resources.Limits).To(Equal(dedicatedCpusContainer.Resources.Requests))
+
+				cpuAmountStr := dedicatedCpusContainer.Resources.Limits.Cpu().String()
+				cpuAmountInt, err := strconv.Atoi(cpuAmountStr)
+				Expect(err).ToNot(HaveOccurred(), "cpu amount is not an integer")
+				Expect(cpuAmountInt).To(Equal(int(hardware.GetNumberOfVCPUs(vmi.Spec.Domain.CPU))))
+
+				sleepAmount := CalculateBigUniqueValueForVmi(vmi)
+				Expect(dedicatedCpusContainer.Args).To(ConsistOf("-c", ContainSubstring(fmt.Sprintf("%d", sleepAmount))))
 			})
 		})
 
