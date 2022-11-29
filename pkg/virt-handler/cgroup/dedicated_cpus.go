@@ -67,11 +67,12 @@ func getQemuKvmPid(computeCgroupManager Manager) (int, error) {
 		err := fmt.Errorf("qemu process was not found")
 		log.Log.Infof("ihol3 %v", err)
 		return -1, err
-	} else if len(qemuKvmPids) > 1 {
-		err := fmt.Errorf("more than 1 qemu process is found within the compute container")
-		log.Log.Infof("ihol3 %v", err)
-		return -1, err
 	}
+	//else if len(qemuKvmPids) > 1 {
+	//	err := fmt.Errorf("more than 1 qemu process is found within the compute container")
+	//	log.Log.Infof("ihol3 %v", err)
+	//	return -1, err
+	//}
 
 	return qemuKvmPids[0], nil
 }

@@ -2540,7 +2540,7 @@ var _ = Describe("[sig-compute]Configurations", func() {
 					if len(pid) == 0 {
 						continue
 					}
-					output, err = tests.GetProcessName(readyPod, pid)
+					output, err = tests.GetProcessName(readyPod, "compute", pid)
 					if err != nil {
 						getProcessNameErrors++
 						continue
@@ -2560,6 +2560,104 @@ var _ = Describe("[sig-compute]Configurations", func() {
 				Expect(console.SafeExpectBatch(cpuVmi, []expect.Batcher{
 					&expect.BSnd{S: "grep -c ^processor /proc/cpuinfo\n"},
 					&expect.BExp{R: "2"},
+				}, 15)).To(Succeed())
+			})
+			FIt("[test_id:TODO]should pin dedicated CPUs to dedicated CPUs cgroup", func() {
+
+				print := func(s string) {
+					fmt.Fprintf(GinkgoWriter, "\n==================================== %s ............................\n", s)
+				}
+
+				sleep := func() {
+					//print("SLEEPING")
+					//time.Sleep(time.Hour)
+				}
+
+				cpuVmi := libvmi.NewCirros()
+				const numberOfCores = 2
+				cpuVmi.Spec.Domain.CPU = &v1.CPU{
+					Cores:                 numberOfCores,
+					DedicatedCPUPlacement: true,
+				}
+
+				By("Starting a VirtualMachineInstance")
+				print("Starting a VirtualMachineInstance")
+				cpuVmi, err = virtClient.VirtualMachineInstance(util.NamespaceTestDefault).Create(cpuVmi)
+				Expect(err).ToNot(HaveOccurred())
+				node := tests.WaitForSuccessfulVMIStart(cpuVmi).Status.NodeName
+
+				sleep()
+
+				// TODO: ihol3 when all tests pass, remove everything that's already tested in other tests
+				By("Checking that the VMI QOS is guaranteed")
+				print("Checking that the VMI QOS is guaranteed")
+				vmi, err := virtClient.VirtualMachineInstance(util.NamespaceTestDefault).Get(cpuVmi.Name, &metav1.GetOptions{})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(vmi.Status.QOSClass).ToNot(BeNil())
+				Expect(*vmi.Status.QOSClass).To(Equal(kubev1.PodQOSGuaranteed))
+
+				Expect(isNodeHasCPUManagerLabel(node)).To(BeTrue())
+
+				By("Checking that the pod QOS is guaranteed")
+				print("Checking that the pod QOS is guaranteed")
+				readyPod := tests.GetRunningPodByVirtualMachineInstance(cpuVmi, util.NamespaceTestDefault)
+				podQos := readyPod.Status.QOSClass
+				Expect(podQos).To(Equal(kubev1.PodQOSGuaranteed))
+
+				var computeContainer *kubev1.Container
+				for _, container := range readyPod.Spec.Containers {
+					if container.Name == "compute" {
+						computeContainer = &container
+					}
+				}
+				Expect(computeContainer).ToNot(BeNil())
+
+				//output, err := tests.GetPodCPUSet(readyPod)
+				//log.Log.Infof("%v", output)
+				//Expect(err).ToNot(HaveOccurred())
+				//output = strings.TrimSuffix(output, "\n")
+				//pinnedCPUsList, err := hw_utils.ParseCPUSetLine(output, 100)
+				//Expect(err).ToNot(HaveOccurred())
+
+				print("ListCgroupThreadsFromContainer")
+
+				output, err := tests.ListCgroupThreadsFromContainer(readyPod, services.DedicatedCpusContainerName)
+				Expect(err).ToNot(HaveOccurred())
+				pids := strings.Split(output, "\n")
+
+				getProcessNameErrors := 0
+				vcpusFound := 0
+				By("Expecting only vcpu threads on root of pod cgroup")
+				for _, pid := range pids {
+					if len(pid) == 0 {
+						continue
+					}
+					output, err = tests.GetProcessName(readyPod, services.DedicatedCpusContainerName, pid)
+					if err != nil {
+						getProcessNameErrors++
+						continue
+					}
+
+					if strings.Contains(output, "CPU ") && strings.Contains(output, "KVM") {
+						vcpusFound++
+					}
+				}
+
+				// TODO: ihol3 compare with test above
+				Expect(vcpusFound).To(BeEquivalentTo(cpuVmi.Spec.Domain.CPU.Cores))
+				Expect(getProcessNameErrors).Should(BeNumerically("<=", 1))
+
+				print("LOGING IN")
+
+				By("Expecting the VirtualMachineInstance console")
+				Expect(console.LoginToCirros(cpuVmi)).To(Succeed())
+
+				print("EXECUTING CMD")
+
+				By("Checking the number of CPU cores under guest OS")
+				Expect(console.SafeExpectBatch(cpuVmi, []expect.Batcher{
+					&expect.BSnd{S: "grep -c ^processor /proc/cpuinfo\n"},
+					&expect.BExp{R: strconv.Itoa(numberOfCores)},
 				}, 15)).To(Succeed())
 			})
 
