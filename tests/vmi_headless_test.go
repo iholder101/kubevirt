@@ -21,7 +21,14 @@ package tests_test
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/onsi/gomega/gstruct"
+	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	virt_api "kubevirt.io/kubevirt/pkg/virt-api"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -157,6 +164,54 @@ var _ = Describe("[rfe_id:609][sig-compute]VMIheadless", func() {
 					}
 				}
 				Expect(vncCount).To(Equal(1), "should have exactly one VNC device")
+			})
+
+			It("should close connections after a while", func() {
+				getHandlerConns := func() int {
+					cmd := []string{"bash", "-c", fmt.Sprintf("ss -ntlap | grep %d | wc -l", virt_api.DefaultConsoleServerPort)}
+					stdout, stderr, err := tests.ExecuteCommandOnNodeThroughVirtHandler(virtClient, vmi.Status.NodeName, cmd)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(stderr).To(BeEmpty())
+
+					stdout = strings.TrimSpace(stdout)
+					stdout = strings.ReplaceAll(stdout, "\n", "")
+
+					handlerCons, err := strconv.Atoi(stdout)
+					Expect(err).ToNot(HaveOccurred())
+
+					return handlerCons
+				}
+
+				By("Running the VMI")
+				vmi = tests.NewRandomFedoraVMIWithGuestAgent()
+				vmi = tests.RunVMIAndExpectLaunch(vmi, 30)
+
+				By("VMI has the guest agent connected condition")
+				Eventually(func() []v1.VirtualMachineInstanceCondition {
+					vmi, err = virtClient.VirtualMachineInstance(util.NamespaceTestDefault).Get(vmi.Name, &v12.GetOptions{})
+					Expect(err).ToNot(HaveOccurred(), "Should get VMI ")
+					return vmi.Status.Conditions
+				}, 30*time.Second, 2).Should(
+					ContainElement(
+						gstruct.MatchFields(
+							gstruct.IgnoreExtras,
+							gstruct.Fields{"Type": Equal(v1.VirtualMachineInstanceAgentConnected)})),
+					"Should have agent connected condition")
+
+				origHandlerCons := getHandlerConns()
+
+				By("Making multiple requests")
+				const numberOfRequests = 30
+				for i := 0; i < numberOfRequests; i++ {
+					_, err := virtClient.VirtualMachineInstance(vmi.ObjectMeta.Namespace).GuestOsInfo(vmi.Name)
+					Expect(err).ToNot(HaveOccurred())
+					time.Sleep(500 * time.Millisecond)
+				}
+
+				By("Expecting the number of connections to stabalize")
+				Eventually(func() int {
+					return getHandlerConns() - origHandlerCons
+				}, 8*time.Second, 1*time.Second).Should(BeNumerically("<=", 5), "number of connections is expected to drop after a while")
 			})
 
 		})
