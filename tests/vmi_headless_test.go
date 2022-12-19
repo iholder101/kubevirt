@@ -211,7 +211,7 @@ var _ = Describe("[rfe_id:609][sig-compute]VMIheadless", func() {
 				By("Expecting the number of connections to stabalize")
 				Eventually(func() int {
 					return getHandlerConns() - origHandlerCons
-				}, 8*time.Second, 1*time.Second).Should(BeNumerically("<=", 5), "number of connections is expected to drop after a while")
+				}, 30*time.Second, 1*time.Second).Should(BeNumerically("<=", 5), "number of connections is expected to drop after a while")
 			})
 
 		})
