@@ -179,7 +179,10 @@ func (lh *LifecycleHandler) GetGuestInfo(request *restful.Request, response *res
 	}
 
 	log.Log.Object(vmi).Infof("returning guestinfo :%v", guestInfo)
-	response.WriteEntity(guestInfo)
+	err = response.WriteEntity(guestInfo)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (lh *LifecycleHandler) GetUsers(request *restful.Request, response *restful.Response) {
