@@ -166,7 +166,7 @@ var _ = Describe("[rfe_id:609][sig-compute]VMIheadless", func() {
 				Expect(vncCount).To(Equal(1), "should have exactly one VNC device")
 			})
 
-			It("should close connections after a while", func() {
+			FIt("should close connections after a while", func() {
 				getHandlerConns := func() int {
 					cmd := []string{"bash", "-c", fmt.Sprintf("ss -ntlap | grep %d | wc -l", virt_api.DefaultConsoleServerPort)}
 					stdout, stderr, err := tests.ExecuteCommandOnNodeThroughVirtHandler(virtClient, vmi.Status.NodeName, cmd)
