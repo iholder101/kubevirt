@@ -179,7 +179,7 @@ func (lh *LifecycleHandler) GetGuestInfo(request *restful.Request, response *res
 	}
 
 	log.Log.Object(vmi).Infof("returning guestinfo :%v", guestInfo)
-	err = response.WriteEntity(guestInfo)
+	err = response.WriteHeaderAndEntity(http.StatusOK, guestInfo)
 	if err != nil {
 		panic(err)
 	}
