@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"kubevirt.io/kubevirt/pkg/virt-controller/watch/topology"
+
 	backendstorage "kubevirt.io/kubevirt/pkg/storage/backend-storage"
 
 	networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
@@ -54,10 +56,10 @@ import (
 	"kubevirt.io/kubevirt/pkg/network/vmispec"
 	storagetypes "kubevirt.io/kubevirt/pkg/storage/types"
 	"kubevirt.io/kubevirt/pkg/util"
+	"kubevirt.io/kubevirt/pkg/util/hardware"
 	traceUtils "kubevirt.io/kubevirt/pkg/util/trace"
 	virtconfig "kubevirt.io/kubevirt/pkg/virt-config"
 	"kubevirt.io/kubevirt/pkg/virt-controller/services"
-	"kubevirt.io/kubevirt/pkg/virt-controller/watch/topology"
 )
 
 const (
@@ -722,6 +724,10 @@ func (c *VMIController) updateStatus(vmi *virtv1.VirtualMachineInstance, pod *k8
 			log.Log.Errorf("failed to update the interface status: %v", err)
 		}
 
+		if c.requireCPUHotplug(vmiCopy) {
+			c.syncCPUHotplug(vmiCopy)
+		}
+
 	case vmi.IsScheduled():
 		// Nothing here
 		break
@@ -1228,6 +1234,7 @@ func (c *VMIController) sync(vmi *virtv1.VirtualMachineInstance, pod *k8sv1.Pod,
 	}
 
 	if !isTempPod(pod) && isPodReady(pod) {
+
 		if vmispec.SRIOVInterfaceExist(vmi.Spec.Domain.Devices.Interfaces) {
 			networkPCIMapAnnotationValue := sriov.CreateNetworkPCIAnnotationValue(
 				vmi.Spec.Networks, vmi.Spec.Domain.Devices.Interfaces, pod.Annotations[networkv1.NetworkStatusAnnot],
@@ -2323,4 +2330,24 @@ func generateInterfaceStatusPatchRequest(oldInterfaceStatus []byte, newInterface
 		fmt.Sprintf(`{ "op": "test", "path": "/status/interfaces", "value": %s }`, string(oldInterfaceStatus)),
 		fmt.Sprintf(`{ "op": "add", "path": "/status/interfaces", "value": %s }`, string(newInterfaceStatus)),
 	}
+}
+
+func (c *VMIController) syncCPUHotplug(vmi *virtv1.VirtualMachineInstance) {
+	vmiConditions := controller.NewVirtualMachineInstanceConditionManager()
+	condition := virtv1.VirtualMachineInstanceCondition{
+		Type:   virtv1.VirtualMachineInstanceVCPUChange,
+		Status: k8sv1.ConditionTrue,
+	}
+	if !vmiConditions.HasCondition(vmi, condition.Type) {
+		vmiConditions.UpdateCondition(vmi, &condition)
+		log.Log.Object(vmi).V(4).Infof("hot plug cpu vmi %s", vmi.Name)
+	}
+
+}
+
+func (c *VMIController) requireCPUHotplug(vmi *virtv1.VirtualMachineInstance) bool {
+	return vmi.Spec.Domain.CPU != nil &&
+		vmi.Spec.Domain.CPU.MaxSockets != 0 &&
+		vmi.Status.CurrentCPUTopology != nil &&
+		hardware.GetNumberOfVCPUs(vmi.Spec.Domain.CPU) != hardware.GetNumberOfVCPUs(vmi.Status.CurrentCPUTopology)
 }
