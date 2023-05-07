@@ -15967,6 +15967,11 @@
       "description": "IsolateEmulatorThread requests one more dedicated pCPU to be allocated for the VMI to place the emulator thread on it.",
       "type": "boolean"
      },
+     "maxSockets": {
+      "description": "MaxSockets specifies the maximum amount of sockets that can be hotplugged",
+      "type": "integer",
+      "format": "int64"
+     },
      "model": {
       "description": "Model specifies the CPU model inside the VMI. List of available models https://github.com/libvirt/libvirt/tree/master/src/cpu_map. It is possible to specify special cases like \"host-passthrough\" to get the same CPU as the node and \"host-model\" to get CPU closest to the node one. Defaults to host-model.",
       "type": "string"
@@ -17571,6 +17576,10 @@
       "description": "KSMConfiguration holds the information regarding the enabling the KSM in the nodes (if available).",
       "$ref": "#/definitions/v1.KSMConfiguration"
      },
+     "liveUpdateConfiguration": {
+      "description": "LiveUpdateConfiguration holds defaults for live update features",
+      "$ref": "#/definitions/v1.LiveUpdateConfiguration"
+     },
      "machineType": {
       "type": "string"
      },
@@ -17882,6 +17891,35 @@
      "sev": {
       "description": "AMD Secure Encrypted Virtualization (SEV).",
       "$ref": "#/definitions/v1.SEV"
+     }
+    }
+   },
+   "v1.LiveUpdateCPU": {
+    "type": "object",
+    "properties": {
+     "maxSockets": {
+      "description": "The maximum amount of sockets that can be hot-plugged to the Virtual Machine",
+      "type": "integer",
+      "format": "int64"
+     }
+    }
+   },
+   "v1.LiveUpdateConfiguration": {
+    "type": "object",
+    "properties": {
+     "maxCpuSockets": {
+      "description": "MaxCpuSockets holds the maximum amount of sockets that can be hotplugged",
+      "type": "integer",
+      "format": "int64"
+     }
+    }
+   },
+   "v1.LiveUpdateFeatures": {
+    "type": "object",
+    "properties": {
+     "cpu": {
+      "description": "LiveUpdateCPU holds hotplug configuration for the CPU resource.",
+      "$ref": "#/definitions/v1.LiveUpdateCPU"
      }
     }
    },
@@ -20126,6 +20164,10 @@
        "$ref": "#/definitions/v1.VirtualMachineInstanceCondition"
       }
      },
+     "currentCPUTopology": {
+      "description": "CurrentCPUTopology specifies the current CPU topology used by the VM workload. Current topology may differ from the desired topology in the spec while CPU hotplug takes place.",
+      "$ref": "#/definitions/v1.CPU"
+     },
      "evacuationNodeName": {
       "description": "EvacuationNodeName is used to track the eviction process of a VMI. It stores the name of the node that we want to evacuate. It is meant to be used by KubeVirt core components only and can't be set or modified by users.",
       "type": "string"
@@ -20348,6 +20390,10 @@
      "instancetype": {
       "description": "InstancetypeMatcher references a instancetype that is used to fill fields in Template",
       "$ref": "#/definitions/v1.InstancetypeMatcher"
+     },
+     "liveUpdateFeatures": {
+      "description": "LiveUpdateFeatures references a configuration of hotpluggable resources",
+      "$ref": "#/definitions/v1.LiveUpdateFeatures"
      },
      "preference": {
       "description": "PreferenceMatcher references a set of preference that is used to fill fields in Template",

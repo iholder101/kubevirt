@@ -293,6 +293,9 @@ type CPU struct {
 	// Sockets specifies the number of sockets inside the vmi.
 	// Must be a value greater or equal 1.
 	Sockets uint32 `json:"sockets,omitempty"`
+	// MaxSockets specifies the maximum amount of sockets that can
+	// be hotplugged
+	MaxSockets uint32 `json:"maxSockets,omitempty"`
 	// Threads specifies the number of threads inside the vmi.
 	// Must be a value greater or equal 1.
 	Threads uint32 `json:"threads,omitempty"`
