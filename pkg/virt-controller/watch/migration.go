@@ -30,6 +30,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/opencontainers/selinux/go-selinux"
 
 	"kubevirt.io/api/migrations/v1alpha1"
@@ -1288,6 +1290,9 @@ func (c *MigrationController) sync(key string, migration *virtv1.VirtualMachineI
 					return c.createAttachmentPod(migration, vmi, pod)
 				}
 			}
+			if controller.VMIHasHotplugCPU(vmi) {
+				c.handleCPUHotplugTargetPod(vmi, pod)
+			}
 		} else {
 			return c.handlePendingPodTimeout(migration, vmi, pod)
 		}
@@ -1967,4 +1972,29 @@ func (c *MigrationController) removeHandOffKey(migrationKey string) {
 	defer c.handOffLock.Unlock()
 
 	delete(c.handOffMap, migrationKey)
+}
+
+func (c *MigrationController) handleCPUHotplugTargetPod(vmi *virtv1.VirtualMachineInstance, pod *k8sv1.Pod) {
+	if vmi.IsCPUDedicated() {
+		var cpuLimit resource.Quantity
+		for _, container := range pod.Spec.Containers {
+			if container.Name == "compute" {
+				if limit, ok := container.Resources.Limits[k8sv1.ResourceCPU]; ok {
+					cpuLimit = limit
+				}
+			}
+		}
+		setCPULimitAnnotationOnVMI(cpuLimit, vmi)
+
+	}
+}
+
+func setCPULimitAnnotationOnVMI(cpuLimit resource.Quantity, vmi *virtv1.VirtualMachineInstance) {
+	annotations := vmi.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+
+	annotations[virtv1.VirtualMachinePodCPULimitsAnnotation] = cpuLimit.String()
+	vmi.SetAnnotations(annotations)
 }
