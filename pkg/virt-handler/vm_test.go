@@ -2054,12 +2054,62 @@ var _ = Describe("VirtualMachineInstance", func() {
 			vmiUpdated := vmi.DeepCopy()
 			vmiUpdated.Status.MigrationState.TargetNodeDomainDetected = true
 			client.EXPECT().Ping().AnyTimes()
-			client.EXPECT().FinalizeVirtualMachineMigration(vmi)
-
+			client.EXPECT().FinalizeVirtualMachineMigration(gomock.Any())
 			vmiInterface.EXPECT().Update(context.Background(), gomock.Any()).Do(func(ctx context.Context, vmiObj *v1.VirtualMachineInstance) {
 
 				Expect(vmiObj.Status.MigrationState.TargetNodeDomainReadyTimestamp).ToNot(BeNil())
+				Expect(vmiObj.Status.CurrentCPUTopology).To(BeNil())
 				vmiUpdated.Status.MigrationState.TargetNodeDomainReadyTimestamp = vmiObj.Status.MigrationState.TargetNodeDomainReadyTimestamp
+
+				Expect(vmiObj).To(Equal(vmiUpdated))
+			})
+
+			controller.Execute()
+		})
+
+		It("should hotplug CPU in post-migration when target pod has the required resources", func() {
+			vmi := api2.NewMinimalVMI("testvmi")
+			vmi.UID = vmiTestUUID
+			vmi.ObjectMeta.ResourceVersion = "1"
+			vmi.Status.Phase = v1.Running
+			vmi.Labels = make(map[string]string)
+			vmi.Status.NodeName = "othernode"
+			vmi.Labels[v1.MigrationTargetNodeNameLabel] = host
+			pastTime := metav1.NewTime(metav1.Now().Add(time.Duration(-10) * time.Second))
+			vmi.Status.MigrationState = &v1.VirtualMachineInstanceMigrationState{
+				TargetNode:               host,
+				TargetNodeAddress:        "127.0.0.1:12345",
+				SourceNode:               "othernode",
+				MigrationUID:             "123",
+				TargetNodeDomainDetected: false,
+				StartTimestamp:           &pastTime,
+			}
+			vmi.Status.CurrentCPUTopology = &v1.CPU{}
+
+			mockWatchdog.CreateFile(vmi)
+			domain := api.NewMinimalDomainWithUUID("testvmi", vmiTestUUID)
+			domain.Status.Status = api.Running
+
+			domain.Spec.Metadata.KubeVirt.Migration = &api.MigrationMetadata{
+				UID:            "123",
+				StartTimestamp: &pastTime,
+			}
+
+			domainFeeder.Add(domain)
+			vmiFeeder.Add(vmi)
+
+			vmiUpdated := vmi.DeepCopy()
+			vmiUpdated.Status.MigrationState.TargetNodeDomainDetected = true
+
+			client.EXPECT().Ping().AnyTimes()
+			client.EXPECT().FinalizeVirtualMachineMigration(gomock.Any())
+			client.EXPECT().SyncVirtualMachineCPUs(gomock.Any(), gomock.Any())
+			vmiInterface.EXPECT().Update(context.Background(), gomock.Any()).Do(func(ctx context.Context, vmiObj *v1.VirtualMachineInstance) {
+
+				Expect(vmiObj.Status.MigrationState.TargetNodeDomainReadyTimestamp).ToNot(BeNil())
+				Expect(vmiObj.Status.CurrentCPUTopology).NotTo(BeNil())
+				vmiUpdated.Status.MigrationState.TargetNodeDomainReadyTimestamp = vmiObj.Status.MigrationState.TargetNodeDomainReadyTimestamp
+				vmiUpdated.Status.CurrentCPUTopology = vmiObj.Status.CurrentCPUTopology
 
 				Expect(vmiObj).To(Equal(vmiUpdated))
 			})
