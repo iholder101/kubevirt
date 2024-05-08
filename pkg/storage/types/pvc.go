@@ -231,7 +231,7 @@ func RenderPVC(size *resource.Quantity, claimName, namespace, storageClass, acce
 			Namespace: namespace,
 		},
 		Spec: k8sv1.PersistentVolumeClaimSpec{
-			Resources: k8sv1.ResourceRequirements{
+			Resources: k8sv1.VolumeResourceRequirements{
 				Requests: k8sv1.ResourceList{
 					k8sv1.ResourceStorage: *size,
 				},

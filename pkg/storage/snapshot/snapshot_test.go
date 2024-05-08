@@ -2446,7 +2446,7 @@ func createVirtualMachine(namespace, name string) *v1.VirtualMachine {
 							},
 						},
 						PVC: &corev1.PersistentVolumeClaimSpec{
-							Resources: corev1.ResourceRequirements{
+							Resources: corev1.VolumeResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceName(corev1.ResourceStorage): resource.MustParse("2Gi"),
 								},
@@ -2574,7 +2574,7 @@ func addMemoryDumpPVC(pvcs []corev1.PersistentVolumeClaim) []corev1.PersistentVo
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			VolumeName: "memorydump",
-			Resources: corev1.ResourceRequirements{
+			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{
 					corev1.ResourceName(corev1.ResourceStorage): resource.MustParse("500Mi"),
 				},
