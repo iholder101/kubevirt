@@ -569,6 +569,7 @@ func (t *vmRestoreTarget) reconcileSpec() (bool, error) {
 	}
 
 	if !t.doesTargetVMExist() {
+		t.handleTargetNonRestoredPvcsOrDVs(newVM)
 		newVM, err = patchVM(newVM, t.vmRestore.Spec.Patches)
 		if err != nil {
 			return false, fmt.Errorf("error patching VM %s: %v", newVM.Name, err)
@@ -731,7 +732,7 @@ func (t *vmRestoreTarget) createDataVolume(dvt kubevirtv1.DataVolumeTemplateSpec
 	if err != nil {
 		return false, err
 	}
-	if pvc.Annotations[populatedForPVCAnnotation] != dvt.Name || len(pvc.OwnerReferences) > 0 {
+	if pvc != nil && (pvc.Annotations[populatedForPVCAnnotation] != dvt.Name || len(pvc.OwnerReferences) > 0) {
 		return false, nil
 	}
 
@@ -827,6 +828,44 @@ func (t *vmRestoreTarget) getTargetNewPvcName(oldPvcName string) string {
 	}
 
 	return newName
+}
+
+func (t *vmRestoreTarget) handleTargetNonRestoredPvcsOrDVs(targetVM *kubevirtv1.VirtualMachine) {
+	if t.doesTargetVMExist() {
+		return
+	}
+
+	oldToNewDVTemplateNames := make(map[string]string, len(targetVM.Spec.DataVolumeTemplates))
+	for i, dvt := range targetVM.Spec.DataVolumeTemplates {
+		newName := t.getTargetNewPvcName(dvt.Name)
+		oldToNewDVTemplateNames[dvt.Name] = newName
+		targetVM.Spec.DataVolumeTemplates[i].Name = newName
+	}
+
+	wasVolumeRestored := func(volumeName string) bool {
+		for _, restoreStatus := range t.vmRestore.Status.Restores {
+			if restoreStatus.VolumeName != volumeName {
+				return true
+			}
+		}
+		return false
+	}
+
+	for i, targetVMVolume := range targetVM.Spec.Template.Spec.Volumes {
+		foundRestore := wasVolumeRestored(targetVMVolume.Name)
+		if foundRestore {
+			continue
+		}
+
+		switch {
+		case targetVMVolume.PersistentVolumeClaim != nil:
+			targetVM.Spec.Template.Spec.Volumes[i].PersistentVolumeClaim.ClaimName = t.getTargetNewPvcName(targetVMVolume.PersistentVolumeClaim.ClaimName)
+		case targetVMVolume.DataVolume != nil:
+			targetVM.Spec.Template.Spec.Volumes[i].DataVolume.Name = oldToNewDVTemplateNames[targetVMVolume.DataVolume.Name]
+		default:
+			continue
+		}
+	}
 }
 
 func (ctrl *VMRestoreController) getSnapshotContent(vmRestore *snapshotv1.VirtualMachineRestore) (*snapshotv1.VirtualMachineSnapshotContent, error) {
