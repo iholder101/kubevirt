@@ -992,6 +992,50 @@ var _ = Describe("Restore controller", func() {
 						Expect(err).ShouldNot(HaveOccurred())
 					})
 
+					FIt("with a source with an unbound PVC - should point to different PVCs", func() {
+						r.Spec.Patches = []string{changeNamePatch}
+
+						var clonedVM *kubevirtv1.VirtualMachine
+						vmInterface.EXPECT().Create(context.Background(), gomock.Any(), metav1.CreateOptions{}).DoAndReturn(func(ctx context.Context, newVM *kubevirtv1.VirtualMachine, options metav1.CreateOptions) (*kubevirtv1.VirtualMachine, error) {
+							Expect(newVM.Name).To(Equal(newVmName), "the created VM should be the new VM")
+							clonedVM = newVM
+							return newVM, nil
+						}).Times(1)
+
+						targetVM, err := controller.getTarget(r)
+						Expect(err).ShouldNot(HaveOccurred())
+						success, err := targetVM.Reconcile()
+						Expect(success).To(BeTrue())
+						Expect(err).ShouldNot(HaveOccurred())
+
+						getPVCNames := func(vm *kubevirtv1.VirtualMachine) (pvcNames []string) {
+							for _, volume := range vm.Spec.Template.Spec.Volumes {
+								switch {
+								case volume.PersistentVolumeClaim != nil:
+									pvcNames = append(pvcNames, volume.PersistentVolumeClaim.ClaimName)
+								case volume.DataVolume != nil:
+									pvcNames = append(pvcNames, volume.DataVolume.Name)
+								default:
+									continue
+								}
+							}
+							return pvcNames
+						}
+
+						sourceVM := vm
+						Expect(sourceVM).ToNot(BeNil())
+						Expect(clonedVM).ToNot(BeNil())
+
+						sourcePVCNames := getPVCNames(sourceVM)
+						targetPVCNames := getPVCNames(clonedVM)
+
+						for _, sourcePVCName := range sourcePVCNames {
+							for _, targetPVCName := range targetPVCNames {
+								Expect(sourcePVCName).ToNot(Equal(targetPVCName), fmt.Sprintf("source and target VMs point to the same PVC/DV: %s", sourcePVCName))
+							}
+						}
+					})
+
 				})
 
 			})
