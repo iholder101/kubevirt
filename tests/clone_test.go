@@ -832,6 +832,69 @@ var _ = Describe("[Serial]VirtualMachineClone Tests", Serial, func() {
 						}, 1*time.Minute).Should(Succeed(), "vmsnapshot and vmrestore should be deleted once the pvc is bound")
 					})
 
+					FIt("with a source with an unbound PVC - should have different PVCs", func() {
+						By("Creating VMs")
+						sourceVM = createVMWithStorageClass(snapshotStorageClass, false)
+						vmClone = generateCloneFromVM()
+
+						Eventually(func() error {
+							sourceVM, err = virtClient.VirtualMachine(sourceVM.Namespace).Get(context.Background(), sourceVM.Name, v1.GetOptions{})
+							Expect(err).ShouldNot(HaveOccurred())
+
+							for _, s := range sourceVM.Status.VolumeSnapshotStatuses {
+								if s.Enabled == false {
+									return fmt.Errorf("volume %s snapshot is disabled", s.Name)
+								}
+							}
+
+							return nil
+						}).WithTimeout(30*time.Second).WithPolling(1*time.Second).ShouldNot(HaveOccurred(), "volumes are expected to be snapshotable")
+
+						createCloneAndWaitForFinish(vmClone)
+
+						By("Running VMs")
+						targetVM, err = virtClient.VirtualMachine(sourceVM.Namespace).Get(context.Background(), targetVMName, v1.GetOptions{})
+						Expect(err).ShouldNot(HaveOccurred())
+
+						//for i, volume := range targetVM.Spec.Template.Spec.Volumes {
+						//	if volume.DataVolume == nil {
+						//		continue
+						//	}
+						//
+						//	targetVM.Spec.Template.Spec.Volumes[i].DataVolume.Name = volume.DataVolume.Name + "-yahani"
+						//}
+						//
+						//for i, dvt := range targetVM.Spec.DataVolumeTemplates {
+						//	targetVM.Spec.DataVolumeTemplates[i].Name = dvt.Name + "-yahani"
+						//}
+						//
+						//targetVM, err = virtClient.VirtualMachine(targetVM.Namespace).Update(context.Background(), targetVM, v1.UpdateOptions{})
+						//Expect(err).ShouldNot(HaveOccurred())
+
+						sourceVM = StartVirtualMachine(sourceVM)
+						targetVM = StartVirtualMachine(targetVM)
+
+						By("making sure different PVCs are used")
+						getPVCNames := func(vm *virtv1.VirtualMachine) (pvcNames []string) {
+							for _, volume := range vm.Spec.Template.Spec.Volumes {
+								if volume.PersistentVolumeClaim == nil {
+									continue
+								}
+								pvcNames = append(pvcNames, volume.PersistentVolumeClaim.ClaimName)
+							}
+							return pvcNames
+						}
+
+						sourcePVCNames := getPVCNames(sourceVM)
+						targetPVCNames := getPVCNames(targetVM)
+
+						for _, sourcePVCName := range sourcePVCNames {
+							for _, targetPVCName := range targetPVCNames {
+								Expect(sourcePVCName).ToNot(Equal(targetPVCName), fmt.Sprintf("source and target VMs have the same PVC: %s", sourcePVCName))
+							}
+						}
+					})
+
 				})
 
 			})
