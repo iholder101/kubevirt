@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kubevirtv1 "kubevirt.io/api/core/v1"
@@ -497,14 +498,14 @@ func (t *vmRestoreTarget) reconcileSpec() (bool, error) {
 							VolumeSource: kubevirtv1.VolumeSource{
 								PersistentVolumeClaim: &kubevirtv1.PersistentVolumeClaimVolumeSource{
 									PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-										ClaimName: vr.PersistentVolumeClaimName,
+										ClaimName: t.getTargetNewPvcName(vr.PersistentVolumeClaimName),
 									},
 								},
 							},
 						}
 					}
 				} else {
-					nv.PersistentVolumeClaim.ClaimName = vr.PersistentVolumeClaimName
+					nv.PersistentVolumeClaim.ClaimName = t.getTargetNewPvcName(vr.PersistentVolumeClaimName)
 				}
 			}
 		} else if nv.MemoryDump != nil {
@@ -805,6 +806,27 @@ func (t *vmRestoreTarget) Cleanup() error {
 
 func (t *vmRestoreTarget) doesTargetVMExist() bool {
 	return t.vm != nil
+}
+
+func (t *vmRestoreTarget) getTargetNewPvcName(oldPvcName string) string {
+	if t.doesTargetVMExist() {
+		return oldPvcName
+	}
+
+	addRandomSuffix := func(s string) string {
+		return fmt.Sprintf("%s-%s", s, rand.String(5))
+	}
+
+	newName := fmt.Sprintf("%s-%s", oldPvcName, "clone")
+	newName = addRandomSuffix(newName)
+
+	// Kubernetes' object names have limit of 252 characters.
+	// For more info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/
+	if len(newName) > 252 {
+		return addRandomSuffix("clone-volume")
+	}
+
+	return newName
 }
 
 func (ctrl *VMRestoreController) getSnapshotContent(vmRestore *snapshotv1.VirtualMachineRestore) (*snapshotv1.VirtualMachineSnapshotContent, error) {
