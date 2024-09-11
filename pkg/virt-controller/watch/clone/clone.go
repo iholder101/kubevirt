@@ -217,7 +217,7 @@ func (ctrl *VMCloneController) syncTargetVM(vmCloneInfo *vmCloneInfo) syncInfoTy
 				return syncInfo
 			}
 
-			syncInfo = ctrl.createRestoreFromVm(vmClone, vm, vmCloneInfo.snapshotName, syncInfo)
+			syncInfo = ctrl.createRestoreFromVm(vmClone, vm, vmCloneInfo.snapshot, syncInfo)
 			return syncInfo
 		}
 
@@ -409,15 +409,15 @@ func (ctrl *VMCloneController) getSnapshot(snapshotName string, sourceNamespace 
 	return snapshot, syncInfo
 }
 
-func (ctrl *VMCloneController) createRestoreFromVm(vmClone *clonev1alpha1.VirtualMachineClone, vm *k6tv1.VirtualMachine, snapshotName string, syncInfo syncInfoType) syncInfoType {
-	patches, err := generatePatches(vm, &vmClone.Spec)
+func (ctrl *VMCloneController) createRestoreFromVm(vmClone *clonev1alpha1.VirtualMachineClone, vm *k6tv1.VirtualMachine, snapshot *snapshotv1.VirtualMachineSnapshot, syncInfo syncInfoType) syncInfoType {
+	patches, err := generatePatches(vm, &vmClone.Spec, snapshot)
 	if err != nil {
 		retErr := fmt.Errorf("error generating patches for clone %s: %v", vmClone.Name, err)
 		ctrl.recorder.Event(vmClone, corev1.EventTypeWarning, string(RestoreCreationFailed), retErr.Error())
 		syncInfo.setError(retErr)
 		return syncInfo
 	}
-	restore := generateRestore(vmClone.Spec.Target, vm.Name, vmClone.Namespace, vmClone.Name, snapshotName, vmClone.UID, patches)
+	restore := generateRestore(vmClone.Spec.Target, vm.Name, vmClone.Namespace, vmClone.Name, snapshot.Name, vmClone.UID, patches)
 	log.Log.Object(vmClone).Infof("creating restore %s for clone %s", restore.Name, vmClone.Name)
 	createdRestore, err := ctrl.client.VirtualMachineRestore(restore.Namespace).Create(context.Background(), restore, v1.CreateOptions{})
 	if err != nil {

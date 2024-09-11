@@ -23,7 +23,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
+
+	snapshotv1 "kubevirt.io/api/snapshot/v1beta1"
 
 	"kubevirt.io/client-go/log"
 
@@ -33,7 +36,7 @@ import (
 	"kubevirt.io/kubevirt/pkg/apimachinery/patch"
 )
 
-func generatePatches(source *k6tv1.VirtualMachine, cloneSpec *clonev1alpha1.VirtualMachineCloneSpec) ([]string, error) {
+func generatePatches(source *k6tv1.VirtualMachine, cloneSpec *clonev1alpha1.VirtualMachineCloneSpec, snapshot *snapshotv1.VirtualMachineSnapshot) ([]string, error) {
 	patchSet := patch.New()
 	addMacAddressPatches(patchSet, source.Spec.Template.Spec.Domain.Devices.Interfaces, cloneSpec.NewMacAddresses)
 	addSmbiosSerialPatches(patchSet, source.Spec.Template.Spec.Domain.Firmware, cloneSpec.NewSMBiosSerial)
@@ -42,6 +45,7 @@ func generatePatches(source *k6tv1.VirtualMachine, cloneSpec *clonev1alpha1.Virt
 	addRemovePatchesFromFilter(patchSet, source.Spec.Template.ObjectMeta.Labels, cloneSpec.Template.LabelFilters, "/spec/template/metadata/labels")
 	addRemovePatchesFromFilter(patchSet, source.Spec.Template.ObjectMeta.Annotations, cloneSpec.Template.AnnotationFilters, "/spec/template/metadata/annotations")
 	addFirmwareUUIDPatches(patchSet, source.Spec.Template.Spec.Domain.Firmware)
+	addDvTemplateRenamePatches(patchSet, source.Spec.Template.Spec.Volumes, source.Spec.DataVolumeTemplates, snapshot.Status.SnapshotVolumes)
 
 	patches, err := generateStringPatchOperations(patchSet)
 	if err != nil {
@@ -155,4 +159,44 @@ func addFirmwareUUIDPatches(patchSet *patch.PatchSet, firmware *k6tv1.Firmware) 
 	}
 
 	patchSet.AddOption(patch.WithReplace("/spec/template/spec/domain/firmware/uuid", ""))
+}
+
+// If an unbound volume is a DataVolume backed by a DataVolumeTemplate, this changes the names of both volumes in order
+// for the cloned VM to create a unique but identical DataVolume.
+func addDvTemplateRenamePatches(patchSet *patch.PatchSet, targetVmVolumes []k6tv1.Volume, dvTemplates []k6tv1.DataVolumeTemplateSpec, snapshotVolumes *snapshotv1.SnapshotVolumesLists) {
+	if targetVmVolumes == nil || snapshotVolumes == nil || snapshotVolumes.ExcludedVolumes == nil {
+		return
+	}
+
+	hasDvTemplate := func(dvName string) bool {
+		return slices.ContainsFunc(dvTemplates, func(dvTemplate k6tv1.DataVolumeTemplateSpec) bool { return dvTemplate.Name == dvName })
+	}
+
+	oldToNewDvNames := map[string]string{}
+	for volumeIdx, volume := range targetVmVolumes {
+		if !slices.Contains(snapshotVolumes.ExcludedVolumes, volume.Name) {
+			continue
+		}
+		if volume.DataVolume == nil || !hasDvTemplate(volume.DataVolume.Name) {
+			continue
+		}
+
+		newVolumeName := generateVolumeName(volume.DataVolume.Name)
+		oldToNewDvNames[volume.DataVolume.Name] = newVolumeName
+
+		volumeNamePath := fmt.Sprintf("/spec/template/spec/volumes/%d/dataVolume/name", volumeIdx)
+		patchSet.AddOption(patch.WithReplace(volumeNamePath, newVolumeName))
+	}
+
+	for i, dvTemplate := range dvTemplates {
+		newName, needToRename := oldToNewDvNames[dvTemplate.Name]
+		if !needToRename {
+			continue
+		}
+
+		dvTemplateNamePath := fmt.Sprintf("/spec/dataVolumeTemplates/%d/metadata/name", i)
+		patchSet.AddOption(patch.WithReplace(dvTemplateNamePath, newName))
+	}
+
+	return
 }
