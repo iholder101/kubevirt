@@ -26,6 +26,7 @@ import (
 )
 
 type State string
+type FeatureGateName string
 
 const (
 	// By default, GAed feature gates are considered enabled and no-op.
@@ -49,13 +50,13 @@ const (
 )
 
 type FeatureGate struct {
-	Name        string
+	Name        FeatureGateName
 	State       State
 	VmiSpecUsed func(spec *v1.VirtualMachineInstanceSpec) bool
 	Message     string
 }
 
-var featureGates = map[string]FeatureGate{}
+var featureGates = map[FeatureGateName]FeatureGate{}
 
 func init() {
 	RegisterFeatureGate(FeatureGate{Name: LiveMigrationGate, State: GA})
@@ -80,11 +81,11 @@ func RegisterFeatureGate(fg FeatureGate) {
 	featureGates[fg.Name] = fg
 }
 
-func UnregisterFeatureGate(fgName string) {
+func UnregisterFeatureGate(fgName FeatureGateName) {
 	delete(featureGates, fgName)
 }
 
-func FeatureGateInfo(featureGate string) *FeatureGate {
+func FeatureGateInfo(featureGate FeatureGateName) *FeatureGate {
 	if fg, exist := featureGates[featureGate]; exist {
 		return &fg
 	}

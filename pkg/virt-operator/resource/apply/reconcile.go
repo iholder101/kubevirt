@@ -1360,11 +1360,11 @@ func (r *Reconciler) isFeatureGateEnabled(featureGate string) bool {
 }
 
 func (r *Reconciler) exportProxyEnabled() bool {
-	return r.isFeatureGateEnabled(virtconfig.VMExportGate)
+	return r.isFeatureGateEnabled(string(virtconfig.VMExportGate))
 }
 
 func (r *Reconciler) commonInstancetypesDeploymentEnabled() bool {
-	return r.isFeatureGateEnabled(virtconfig.CommonInstancetypesDeploymentGate)
+	return r.isFeatureGateEnabled(string(virtconfig.CommonInstancetypesDeploymentGate))
 }
 
 func getInstallStrategyAnnotations(meta *metav1.ObjectMeta) (imageTag, imageRegistry, id string, ok bool) {

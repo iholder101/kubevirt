@@ -28,7 +28,7 @@ import (
 func ValidateFeatureGates(featureGates []string, vmiSpec *v1.VirtualMachineInstanceSpec) []metav1.StatusCause {
 	var causes []metav1.StatusCause
 	for _, fgName := range featureGates {
-		fg := FeatureGateInfo(fgName)
+		fg := FeatureGateInfo(FeatureGateName(fgName))
 		if fg != nil && fg.State == Discontinued && fg.VmiSpecUsed != nil {
 			if used := fg.VmiSpecUsed(vmiSpec); used {
 				causes = append(causes, metav1.StatusCause{

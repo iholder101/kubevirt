@@ -25,6 +25,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"kubevirt.io/kubevirt/pkg/virt-config/deprecation"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -212,7 +213,7 @@ func GetTargetConfigFromKVWithEnvVarManager(kv *v1.KubeVirt, envVarManager EnvVa
 	}
 	if kv.Spec.Configuration.DeveloperConfiguration != nil && len(kv.Spec.Configuration.DeveloperConfiguration.FeatureGates) > 0 {
 		for _, v := range kv.Spec.Configuration.DeveloperConfiguration.FeatureGates {
-			if v == virtconfig.PersistentReservation {
+			if deprecation.FeatureGateName(v) == virtconfig.PersistentReservation {
 				additionalProperties[AdditionalPropertiesPersistentReservationEnabled] = ""
 			}
 		}

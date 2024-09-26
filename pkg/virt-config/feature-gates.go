@@ -26,82 +26,82 @@ import "kubevirt.io/kubevirt/pkg/virt-config/deprecation"
 */
 
 const (
-	ExpandDisksGate       = "ExpandDisks"
-	CPUManager            = "CPUManager"
-	IgnitionGate          = "ExperimentalIgnitionSupport"
-	HypervStrictCheckGate = "HypervStrictCheck"
-	SidecarGate           = "Sidecar"
-	GPUGate               = "GPU"
-	HostDevicesGate       = "HostDevices"
-	SnapshotGate          = "Snapshot"
-	VMExportGate          = "VMExport"
-	HotplugVolumesGate    = "HotplugVolumes"
-	HostDiskGate          = "HostDisk"
-	VirtIOFSGate          = "ExperimentalVirtiofsSupport"
+	ExpandDisksGate       deprecation.FeatureGateName = "ExpandDisks"
+	CPUManager            deprecation.FeatureGateName = "CPUManager"
+	IgnitionGate          deprecation.FeatureGateName = "ExperimentalIgnitionSupport"
+	HypervStrictCheckGate deprecation.FeatureGateName = "HypervStrictCheck"
+	SidecarGate           deprecation.FeatureGateName = "Sidecar"
+	GPUGate               deprecation.FeatureGateName = "GPU"
+	HostDevicesGate       deprecation.FeatureGateName = "HostDevices"
+	SnapshotGate          deprecation.FeatureGateName = "Snapshot"
+	VMExportGate          deprecation.FeatureGateName = "VMExport"
+	HotplugVolumesGate    deprecation.FeatureGateName = "HotplugVolumes"
+	HostDiskGate          deprecation.FeatureGateName = "HostDisk"
+	VirtIOFSGate          deprecation.FeatureGateName = "ExperimentalVirtiofsSupport"
 
-	DownwardMetricsFeatureGate = "DownwardMetrics"
-	Root                       = "Root"
-	ClusterProfiler            = "ClusterProfiler"
-	WorkloadEncryptionSEV      = "WorkloadEncryptionSEV"
+	DownwardMetricsFeatureGate deprecation.FeatureGateName = "DownwardMetrics"
+	Root                       deprecation.FeatureGateName = "Root"
+	ClusterProfiler            deprecation.FeatureGateName = "ClusterProfiler"
+	WorkloadEncryptionSEV      deprecation.FeatureGateName = "WorkloadEncryptionSEV"
 	// DockerSELinuxMCSWorkaround sets the SELinux level of all the non-compute virt-launcher containers to "s0".
-	DockerSELinuxMCSWorkaround = "DockerSELinuxMCSWorkaround"
-	VSOCKGate                  = "VSOCK"
+	DockerSELinuxMCSWorkaround deprecation.FeatureGateName = "DockerSELinuxMCSWorkaround"
+	VSOCKGate                  deprecation.FeatureGateName = "VSOCK"
 	// DisableCustomSELinuxPolicy disables the installation of the custom SELinux policy for virt-launcher
-	DisableCustomSELinuxPolicy = "DisableCustomSELinuxPolicy"
+	DisableCustomSELinuxPolicy deprecation.FeatureGateName = "DisableCustomSELinuxPolicy"
 	// KubevirtSeccompProfile indicate that Kubevirt will install its custom profile and
 	// user can tell Kubevirt to use it
-	KubevirtSeccompProfile = "KubevirtSeccompProfile"
+	KubevirtSeccompProfile deprecation.FeatureGateName = "KubevirtSeccompProfile"
 	// DisableMediatedDevicesHandling disables the handling of mediated
 	// devices, its creation and deletion
-	DisableMediatedDevicesHandling = "DisableMDEVConfiguration"
+	DisableMediatedDevicesHandling deprecation.FeatureGateName = "DisableMDEVConfiguration"
 	// HotplugNetworkIfacesGate enables the virtio network interface hotplug feature
 	// Alpha: v1.1.0
 	// Beta: v1.3.0
-	HotplugNetworkIfacesGate = "HotplugNICs"
+	HotplugNetworkIfacesGate deprecation.FeatureGateName = "HotplugNICs"
 	// PersistentReservation enables the use of the SCSI persistent reservation with the pr-helper daemon
-	PersistentReservation = "PersistentReservation"
+	PersistentReservation deprecation.FeatureGateName = "PersistentReservation"
 	// VMPersistentState enables persisting backend state files of VMs, such as the contents of the vTPM
-	VMPersistentState = "VMPersistentState"
-	MultiArchitecture = "MultiArchitecture"
+	VMPersistentState deprecation.FeatureGateName = "VMPersistentState"
+	MultiArchitecture deprecation.FeatureGateName = "MultiArchitecture"
 	// VMLiveUpdateFeaturesGate allows updating certain VM fields, such as CPU sockets to enable hot-plug functionality.
-	VMLiveUpdateFeaturesGate = "VMLiveUpdateFeatures"
+	VMLiveUpdateFeaturesGate deprecation.FeatureGateName = "VMLiveUpdateFeatures"
 	// When BochsDisplayForEFIGuests is enabled, EFI guests will be started with Bochs display instead of VGA
-	BochsDisplayForEFIGuests = "BochsDisplayForEFIGuests"
+	BochsDisplayForEFIGuests deprecation.FeatureGateName = "BochsDisplayForEFIGuests"
 	// NetworkBindingPlugingsGate enables using a plugin to bind the pod and the VM network
-	NetworkBindingPlugingsGate = "NetworkBindingPlugins"
+	NetworkBindingPlugingsGate deprecation.FeatureGateName = "NetworkBindingPlugins"
 	// AutoResourceLimitsGate enables automatic setting of vmi limits if there is a ResourceQuota with limits associated with the vmi namespace.
-	AutoResourceLimitsGate = "AutoResourceLimitsGate"
+	AutoResourceLimitsGate deprecation.FeatureGateName = "AutoResourceLimitsGate"
 
 	// Owner: @lyarwood
 	// Alpha: v1.1.0
 	// Beta:  v1.2.0
 	//
 	// CommonInstancetypesDeploymentGate enables the deployment of common-instancetypes by virt-operator
-	CommonInstancetypesDeploymentGate = "CommonInstancetypesDeploymentGate"
+	CommonInstancetypesDeploymentGate deprecation.FeatureGateName = "CommonInstancetypesDeploymentGate"
 	// AlignCPUsGate allows emulator thread to assign two extra CPUs if needed to complete even parity.
-	AlignCPUsGate = "AlignCPUs"
+	AlignCPUsGate deprecation.FeatureGateName = "AlignCPUs"
 
 	// VolumesUpdateStrategy enables to specify the strategy on the volume updates.
-	VolumesUpdateStrategy = "VolumesUpdateStrategy"
+	VolumesUpdateStrategy deprecation.FeatureGateName = "VolumesUpdateStrategy"
 	// VolumeMigration enables to migrate the storage. It depends on the VolumesUpdateStrategy feature.
-	VolumeMigration = "VolumeMigration"
+	VolumeMigration deprecation.FeatureGateName = "VolumeMigration"
 	// Owner: @xpivarc
 	// Alpha: v1.3.0
 	//
 	// NodeRestriction enables Kubelet's like NodeRestriction but for Kubevirt's virt-handler.
 	// This feature requires following Kubernetes feature gate "ServiceAccountTokenPodNodeInfo". The feature gate is available
 	// in Kubernetes 1.30 as Beta.
-	NodeRestrictionGate = "NodeRestriction"
+	NodeRestrictionGate deprecation.FeatureGateName = "NodeRestriction"
 )
 
-func (config *ClusterConfig) isFeatureGateEnabled(featureGate string) bool {
+func (config *ClusterConfig) isFeatureGateEnabled(featureGate deprecation.FeatureGateName) bool {
 	deprecatedFeature := deprecation.FeatureGateInfo(featureGate)
 	if deprecatedFeature != nil && deprecatedFeature.State == deprecation.GA {
 		return true
 	}
 
 	for _, fg := range config.GetConfig().DeveloperConfiguration.FeatureGates {
-		if fg == featureGate {
+		if deprecation.FeatureGateName(fg) == featureGate {
 			return true
 		}
 	}
