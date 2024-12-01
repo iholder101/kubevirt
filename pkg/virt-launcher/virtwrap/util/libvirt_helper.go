@@ -282,6 +282,7 @@ func startVirtlogdLogging(stopChan chan struct{}, domainName string, nonRoot boo
 			log.Log.Reason(err).Error("failed to start virtlogd")
 			panic(err)
 		}
+		log.Log.Reason(err).Error("STARTED virtlogd.")
 
 		go func() {
 			logfile := fmt.Sprintf("/var/log/libvirt/qemu/%s.log", domainName)
@@ -315,6 +316,8 @@ func startVirtlogdLogging(stopChan chan struct{}, domainName string, nonRoot boo
 			if err := scanner.Err(); err != nil {
 				log.Log.Reason(err).Error("failed to read virtlogd logs")
 			}
+
+			log.Log.Reason(err).Error("virtlogd: scanner EXITED!")
 		}()
 
 		go func() {
