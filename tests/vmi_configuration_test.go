@@ -3037,6 +3037,108 @@ var _ = Describe("[sig-compute]Configurations", decorators.SigCompute, func() {
 		})
 	})
 
+	Context("CPU virtualization overhead", func() {
+		stressVMICpu := func(vmi *v1.VirtualMachineInstance) {
+			By("Run a stress test to dirty some pages and slow down the migration")
+			const stressCmd = "stress-ng --cpu 0 --cpu-method all --matrix 0 --matrix-size 1024 &\n"
+
+			Expect(console.SafeExpectBatch(vmi, []expect.Batcher{
+				&expect.BSnd{S: "\n"},
+				&expect.BExp{R: console.PromptExpression},
+				&expect.BSnd{S: stressCmd},
+				&expect.BExp{R: console.PromptExpression},
+			}, 15)).To(Succeed(), "should run a stress test")
+
+			// give stress tool some time to trash more memory pages before returning control to next steps
+			time.Sleep(15 * time.Second)
+		}
+
+		runShellCmdOnComputeContainer := func(launcherPod *k8sv1.Pod, cmd string) (string, error) {
+			podOutput, err := exec.ExecuteCommandOnPod(
+				launcherPod,
+				launcherPod.Spec.Containers[0].Name,
+				[]string{"sh", "-c", cmd},
+			)
+			return podOutput, err
+		}
+
+		It("validate cgroup configs", func() {
+			By("Creating a VirtualMachineInstance")
+			vmi := libvmifact.NewCirros()
+			// TODO: getting the following warning for some reason:
+			//	 [FAILED] Unexpected Warning event received: testvmi-txhzt,a0dc943a-ca51-4ca1-a76e-fb1255fdfdc9: unknown error encountered sending command SyncVMI: rpc error: code = DeadlineExceeded desc = context deadline exceeded
+			//	 Expected
+			//   	<string>: Warning
+			//	 not to equal
+			//   	<string>: Warning
+			//	 In [It] at: tests/watcher/watcher.go:195 @ 04/24/25 09:56:34.284
+			vmi = libvmops.RunVMIAndExpectLaunchIgnoreWarnings(vmi, 240)
+
+			By("Ensuring that the vcpu cgroup exists")
+			launcherPod, err := libpod.GetPodByVirtualMachineInstance(vmi, vmi.Namespace)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				By("Ensuring that cgroup CPU weight is set up correctly")
+				podOutput, err := runShellCmdOnComputeContainer(launcherPod, `ls /sys/fs/cgroup`)
+				Expect(err).NotTo(HaveOccurred())
+				g.Expect(podOutput).To(ContainSubstring("vcpu"))
+
+				podOutput, err = runShellCmdOnComputeContainer(launcherPod, `cat /sys/fs/cgroup/vcpu/cpu.weight`)
+				Expect(err).NotTo(HaveOccurred())
+				vcpuWeight, err := strconv.Atoi(strings.TrimSpace(podOutput))
+				Expect(err).NotTo(HaveOccurred())
+
+				podOutput, err = runShellCmdOnComputeContainer(launcherPod, `cat /sys/fs/cgroup/cpu.weight`)
+				Expect(err).NotTo(HaveOccurred())
+				podCpuWeight, err := strconv.Atoi(strings.TrimSpace(podOutput))
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(vcpuWeight).To(Equal(podCpuWeight-1), "The vcpu cgroup weight (%d) should be one less than the pod cgroup weight (%d)", vcpuWeight, podCpuWeight)
+
+				podOutput, err = runShellCmdOnComputeContainer(launcherPod, `cat /sys/fs/cgroup/vcpu/cgroup.threads | wc -l`)
+				Expect(err).NotTo(HaveOccurred())
+				vcpuThreads, err := strconv.Atoi(strings.TrimSpace(podOutput))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(vcpuThreads).To(Equal(hw_utils.GetNumberOfVCPUs(vmi.Spec.Domain.CPU)), "The number of threads in the vcpu cgroup (%d) should be equal to the number of vCPUs (%d)", vcpuThreads, hw_utils.GetNumberOfVCPUs(vmi.Spec.Domain.CPU))
+			}).WithPolling(5 * time.Second).WithTimeout(90 * time.Second)
+		})
+
+		FIt("virt-launcher should not starve when the guest stresses CPU", func() {
+			By("Creating a VirtualMachineInstance")
+			vmi := libvmifact.NewFedora(
+				libvmi.WithCPUCount(1, 1, 1),
+				libvmi.WithLimitCPU("400m"),
+				libvmi.WithInterface(libvmi.InterfaceDeviceWithMasqueradeBinding()),
+				libvmi.WithNetwork(v1.DefaultPodNetwork()),
+			)
+			vmi = libvmops.RunVMIAndExpectLaunchIgnoreWarnings(vmi, 240)
+
+			By("Logging into the VMI")
+			Eventually(matcher.ThisVMI(vmi), 2*time.Minute, 2*time.Second).Should(matcher.HaveConditionTrue(v1.VirtualMachineInstanceReady))
+			Expect(console.LoginToFedora(vmi)).To(Succeed())
+			Eventually(matcher.ThisVMI(vmi), 2*time.Minute, 2*time.Second).Should(matcher.HaveConditionTrue(v1.VirtualMachineInstanceAgentConnected))
+
+			By("Ensuring that the vcpu cgroup exists")
+			launcherPod, err := libpod.GetPodByVirtualMachineInstance(vmi, vmi.Namespace)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Running CPU stress inside the VMI")
+			stressVMICpu(vmi)
+
+			By("Running a computational heavy task on virt-launcher")
+			podOutput, err := runShellCmdOnComputeContainer(launcherPod,
+				`(time for i in $(seq 1 2000); do echo -n "test message" | sha256sum > /dev/null; done ) 2>&1 | grep real | awk '{print $2}' | sed 's/m/:/' | awk -F: '{print ($1 * 60) + $2}'`)
+			Expect(err).NotTo(HaveOccurred())
+
+			//convert podOutput to seconds in a float64
+			secondsSpent, err := strconv.ParseFloat(strings.TrimSpace(podOutput), 64)
+			Expect(err).NotTo(HaveOccurred())
+
+			// check if the time spent is less than 10 seconds
+			Expect(secondsSpent).To(BeNumerically("<", 0.0), fmt.Sprintf("Time spent on virt-launcher is too high (above 10 seconds): %f seconds", secondsSpent))
+		})
+	})
 })
 
 func createRuntimeClass(name, handler string) error {
