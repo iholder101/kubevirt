@@ -205,3 +205,11 @@ func (v *v1Manager) GetCgroupThreads() ([]int, error) {
 func (v *v1Manager) SetCpuSet(subcgroup string, cpulist []int) error {
 	return setCpuSetHelper(v, subcgroup, cpulist)
 }
+
+func (v *v1Manager) GetCpuShares() (int, error) {
+	return -1, fmt.Errorf("GetCpuShares is not implemented for cgroup v1")
+}
+
+func (v *v1Manager) SetCpuShares(subcgroup string, shares int) error {
+	return fmt.Errorf("SetCpuShares is not implemented for cgroup v1")
+}
