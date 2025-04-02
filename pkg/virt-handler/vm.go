@@ -2947,6 +2947,77 @@ func (c *VirtualMachineController) configureHousekeepingCgroup(vmi *v1.VirtualMa
 	return nil
 }
 
+func (c *VirtualMachineController) configureVcpuCgroup(vmi *v1.VirtualMachineInstance, cgroupManager cgroup.Manager) error {
+	const (
+		vcpuChildCgroupName = "vcpu"
+		cpuSubsystem        = "cpu"
+	)
+
+	cpuShares, err := cgroupManager.GetCpuShares()
+	if err != nil {
+		return err
+	}
+
+	milliCpuToCpuShares := func(milliCpu int) (cpuShares int) {
+		return milliCpu * 100
+	}
+
+	// If a VM is created with very low resources we'll avoid creating a vcpu cgroup
+	// to ensure the vCPUs are not starved of CPU time.
+	const minMilliCpuSharesToCreateVcpuCgroup = 100
+	if cpuShares < milliCpuToCpuShares(minMilliCpuSharesToCreateVcpuCgroup) {
+		log.Log.Object(vmi).Infof("Avoiding vcpu cgroup creation since CPU request is under 100m (cpu shares: %d)", cpuShares)
+		return nil
+	}
+
+	if err := cgroupManager.CreateChildCgroup(vcpuChildCgroupName, cpuSubsystem); err != nil {
+		log.Log.Reason(err).Error("CreateChildCgroup")
+		return err
+	}
+
+	const cpuSharedReservedForVirtManagement = 20
+	err = cgroupManager.SetCpuShares(vcpuChildCgroupName, milliCpuToCpuShares(cpuShares-cpuSharedReservedForVirtManagement))
+	if err != nil {
+		return err
+	}
+
+	tids, err := cgroupManager.GetCgroupThreads()
+	if err != nil {
+		return err
+	}
+	vcpuTids := make([]int, 0, 10)
+
+	for _, tid := range tids {
+		proc, err := ps.FindProcess(tid)
+		if err != nil {
+			log.Log.Object(vmi).Errorf("Failure to find process: %s", err.Error())
+			return err
+		}
+		if proc == nil {
+			return fmt.Errorf("failed to find process with tid: %d", tid)
+		}
+		comm := proc.Executable()
+		if strings.Contains(comm, "CPU ") && strings.Contains(comm, "KVM") {
+			vcpuTids = append(vcpuTids, tid)
+		}
+	}
+
+	if expectedVcpuThreadCount := hardware.GetNumberOfVCPUs(vmi.Spec.Domain.CPU); expectedVcpuThreadCount != int64(len(vcpuTids)) {
+		return fmt.Errorf("vcpu thread count mismatch: found %d vcpu threds for a VM with %d vCPUs", len(vcpuTids), expectedVcpuThreadCount)
+	}
+
+	log.Log.V(3).Object(vmi).Infof("vcpu thread ids: %v", vcpuTids)
+	for _, tid := range vcpuTids {
+		err = cgroupManager.AttachTID(cpuSubsystem, vcpuChildCgroupName, tid)
+		if err != nil {
+			log.Log.Object(vmi).Errorf("Error attaching tid %d: %v", tid, err.Error())
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (c *VirtualMachineController) vmUpdateHelperDefault(origVMI *v1.VirtualMachineInstance, domainExists bool) error {
 	client, err := c.getLauncherClient(origVMI)
 	if err != nil {
@@ -2984,10 +3055,12 @@ func (c *VirtualMachineController) vmUpdateHelperDefault(origVMI *v1.VirtualMach
 
 	// Post-sync housekeeping
 	if vmi.IsCPUDedicated() && vmi.Spec.Domain.CPU.IsolateEmulatorThread {
-		err := c.configureHousekeepingCgroup(vmi, cgroupManager)
-		if err != nil {
-			return err
-		}
+		err = c.configureHousekeepingCgroup(vmi, cgroupManager)
+	} else {
+		err = c.configureVcpuCgroup(vmi, cgroupManager)
+	}
+	if err != nil {
+		return err
 	}
 
 	// Configure vcpu scheduler for realtime workloads and affine PIT thread for dedicated CPU
