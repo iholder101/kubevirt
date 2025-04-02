@@ -82,6 +82,27 @@ func (_mr *_MockManagerRecorder) SetCpuSet(arg0, arg1 interface{}) *gomock.Call 
 	return _mr.mock.ctrl.RecordCall(_mr.mock, "SetCpuSet", arg0, arg1)
 }
 
+func (_m *MockManager) GetCpuShares() (int, error) {
+	ret := _m.ctrl.Call(_m, "GetCpuShares")
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (_mr *_MockManagerRecorder) GetCpuShares() *gomock.Call {
+	return _mr.mock.ctrl.RecordCall(_mr.mock, "GetCpuShares")
+}
+
+func (_m *MockManager) SetCpuShares(subcgroup string, shares int) error {
+	ret := _m.ctrl.Call(_m, "SetCpuShares", subcgroup, shares)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+func (_mr *_MockManagerRecorder) SetCpuShares(arg0, arg1 interface{}) *gomock.Call {
+	return _mr.mock.ctrl.RecordCall(_mr.mock, "SetCpuShares", arg0, arg1)
+}
+
 func (_m *MockManager) CreateChildCgroup(name string, subSystem string) error {
 	ret := _m.ctrl.Call(_m, "CreateChildCgroup", name, subSystem)
 	ret0, _ := ret[0].(error)

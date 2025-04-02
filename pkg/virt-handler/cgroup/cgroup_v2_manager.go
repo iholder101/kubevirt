@@ -2,6 +2,7 @@ package cgroup
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -161,4 +162,48 @@ func (v *v2Manager) GetCgroupThreads() ([]int, error) {
 
 func (v *v2Manager) SetCpuSet(subcgroup string, cpulist []int) error {
 	return setCpuSetHelper(v, subcgroup, cpulist)
+}
+
+func (v *v2Manager) GetCpuShares() (int, error) {
+	subSysPath, err := v.GetBasePathToHostSubsystem("cpu")
+	if err != nil {
+		return -1, err
+	}
+
+	cpuMaxBytes, err := os.ReadFile(filepath.Join(subSysPath, "cpu.max"))
+	if err != nil {
+		return -1, err
+	}
+
+	cpuMaxStr := strings.TrimSpace(string(cpuMaxBytes))
+	cpuMaxStrSplit := strings.Split(cpuMaxStr, " ")
+	if len(cpuMaxStrSplit) != 2 {
+		return -1, fmt.Errorf("unexpected cpu.max format: %s", cpuMaxStr)
+	}
+
+	cpuMax, err := strconv.Atoi(cpuMaxStrSplit[0])
+	if err != nil {
+		return -1, fmt.Errorf("unexpected cpu.max share format: %s", cpuMaxStrSplit[0])
+	}
+
+	return cpuMax, nil
+}
+
+func (v *v2Manager) SetCpuShares(subcgroup string, shares int) error {
+	subSysPath, err := v.GetBasePathToHostSubsystem("cpu")
+	if err != nil {
+		return err
+	}
+
+	if subcgroup != "" {
+		subSysPath = filepath.Join(subSysPath, subcgroup)
+	}
+
+	cpuMaxStr := strconv.Itoa(shares) + " 100000"
+	err = runc_cgroups.WriteFile(subSysPath, "cpu.max", cpuMaxStr)
+	if err != nil {
+		return fmt.Errorf("setting cpu.max to %s failed: %v", cpuMaxStr, err)
+	}
+
+	return nil
 }
