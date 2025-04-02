@@ -2917,22 +2917,11 @@ func (c *VirtualMachineController) configureHousekeepingCgroup(vmi *v1.VirtualMa
 	if err != nil {
 		return err
 	}
-	hktids := make([]int, 0, 10)
-
-	for _, tid := range tids {
-		proc, err := ps.FindProcess(tid)
-		if err != nil {
-			log.Log.Object(vmi).Errorf("Failure to find process: %s", err.Error())
-			return err
-		}
-		if proc == nil {
-			return fmt.Errorf("failed to find process with tid: %d", tid)
-		}
-		comm := proc.Executable()
-		if strings.Contains(comm, "CPU ") && strings.Contains(comm, "KVM") {
-			continue
-		}
-		hktids = append(hktids, tid)
+	hktids, err := filterThreads(tids, func(executable string) bool {
+		return !(strings.Contains(executable, "CPU ") && strings.Contains(executable, "KVM"))
+	})
+	if err != nil {
+		return err
 	}
 
 	log.Log.V(3).Object(vmi).Infof("hk thread ids: %v", hktids)
@@ -2985,21 +2974,11 @@ func (c *VirtualMachineController) configureVcpuCgroup(vmi *v1.VirtualMachineIns
 	if err != nil {
 		return err
 	}
-	vcpuTids := make([]int, 0, 10)
-
-	for _, tid := range tids {
-		proc, err := ps.FindProcess(tid)
-		if err != nil {
-			log.Log.Object(vmi).Errorf("Failure to find process: %s", err.Error())
-			return err
-		}
-		if proc == nil {
-			return fmt.Errorf("failed to find process with tid: %d", tid)
-		}
-		comm := proc.Executable()
-		if strings.Contains(comm, "CPU ") && strings.Contains(comm, "KVM") {
-			vcpuTids = append(vcpuTids, tid)
-		}
+	vcpuTids, err := filterThreads(tids, func(executable string) bool {
+		return strings.Contains(executable, "CPU ") && strings.Contains(executable, "KVM")
+	})
+	if err != nil {
+		return err
 	}
 
 	if expectedVcpuThreadCount := hardware.GetNumberOfVCPUs(vmi.Spec.Domain.CPU); expectedVcpuThreadCount != int64(len(vcpuTids)) {
@@ -3819,4 +3798,25 @@ func isReadOnlyDisk(disk *v1.Disk) bool {
 	isReadOnlyCDRom := disk.CDRom != nil && (disk.CDRom.ReadOnly == nil || *disk.CDRom.ReadOnly)
 
 	return isReadOnlyCDRom
+}
+
+func filterThreads(tids []int, predicate func(executable string) bool) ([]int, error) {
+	var filteredTids []int
+
+	for _, tid := range tids {
+		proc, err := ps.FindProcess(tid)
+		if err != nil {
+			return nil, fmt.Errorf("failure to find process: %s", err.Error())
+		}
+		if proc == nil {
+			return nil, fmt.Errorf("failed to find process with tid: %d", tid)
+		}
+		comm := proc.Executable()
+
+		if predicate(comm) {
+			filteredTids = append(filteredTids, tid)
+		}
+	}
+
+	return filteredTids, nil
 }
