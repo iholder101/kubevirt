@@ -62,6 +62,12 @@ type Manager interface {
 	// SetCpuSet returns the cpu set
 	SetCpuSet(subcgroup string, cpulist []int) error
 
+	// GetCPUShares returns the cpu shares
+	GetCpuWeight() (int, error)
+
+	// SetCpuSet returns the cpu set
+	SetCpuWeight(subcgroup string, weight int) error
+
 	// Create new child cgroup
 	CreateChildCgroup(name string, subSystem string) (Manager, error)
 

@@ -205,3 +205,11 @@ func (v *v1Manager) GetCgroupThreads() ([]int, error) {
 func (v *v1Manager) SetCpuSet(subcgroup string, cpulist []int) error {
 	return setCpuSetHelper(v, subcgroup, cpulist)
 }
+
+func (v *v1Manager) GetCpuWeight() (int, error) {
+	return -1, fmt.Errorf("GetCpuWeight is not implemented for cgroup v1")
+}
+
+func (v *v1Manager) SetCpuWeight(subcgroup string, weight int) error {
+	return fmt.Errorf("SetCpuWeight is not implemented for cgroup v1")
+}

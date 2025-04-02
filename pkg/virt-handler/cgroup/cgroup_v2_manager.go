@@ -2,6 +2,7 @@ package cgroup
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -162,4 +163,46 @@ func (v *v2Manager) GetCgroupThreads() ([]int, error) {
 
 func (v *v2Manager) SetCpuSet(subcgroup string, cpulist []int) error {
 	return setCpuSetHelper(v, subcgroup, cpulist)
+}
+
+func (v *v2Manager) GetCpuWeight() (int, error) {
+	subSysPath, err := v.GetBasePathToHostSubsystem("cpu")
+	if err != nil {
+		return -1, err
+	}
+
+	cpuWeightBytes, err := os.ReadFile(filepath.Join(subSysPath, "cpu.weight"))
+	if err != nil {
+		return -1, err
+	}
+
+	cpuWeightStr := strings.TrimSpace(string(cpuWeightBytes))
+	cpuWeight, err := strconv.Atoi(cpuWeightStr)
+	if err != nil {
+		return -1, fmt.Errorf("unexpected cpu.weight share format: %s", cpuWeightStr)
+	}
+
+	return cpuWeight, nil
+}
+
+func (v *v2Manager) SetCpuWeight(subcgroup string, weight int) error {
+	if weight <= 0 {
+		return fmt.Errorf("invalid cpu weight, must be positive: %d", weight)
+	}
+
+	subSysPath, err := v.GetBasePathToHostSubsystem("cpu")
+	if err != nil {
+		return err
+	}
+
+	if subcgroup != "" {
+		subSysPath = filepath.Join(subSysPath, subcgroup)
+	}
+
+	err = runc_cgroups.WriteFile(subSysPath, "cpu.weight", strconv.Itoa(weight))
+	if err != nil {
+		return fmt.Errorf("setting cpu.max to %d failed: %v", weight, err)
+	}
+
+	return nil
 }
