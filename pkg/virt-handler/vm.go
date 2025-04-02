@@ -2983,9 +2983,35 @@ func (c *VirtualMachineController) vmUpdateHelperDefault(origVMI *v1.VirtualMach
 	}
 
 	// Post-sync housekeeping
-	err = c.handleHousekeeping(vmi, cgroupManager, domainExists)
-	if err != nil {
-		return err
+	if vmi.IsCPUDedicated() && vmi.Spec.Domain.CPU.IsolateEmulatorThread {
+		err := c.configureHousekeepingCgroup(vmi, cgroupManager)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Configure vcpu scheduler for realtime workloads and affine PIT thread for dedicated CPU
+	if vmi.IsRealtimeEnabled() && !vmi.IsRunning() && !vmi.IsFinal() {
+		log.Log.Object(vmi).Info("Configuring vcpus for real time workloads")
+		if err := c.configureVCPUScheduler(vmi); err != nil {
+			return err
+		}
+	}
+	if vmi.IsCPUDedicated() && !vmi.IsRunning() && !vmi.IsFinal() {
+		log.Log.V(3).Object(vmi).Info("Affining PIT thread")
+		if err := c.affinePitThread(vmi); err != nil {
+			return err
+		}
+	}
+	if !domainExists {
+		c.recorder.Event(vmi, k8sv1.EventTypeNormal, v1.Created.String(), VMIDefined)
+	}
+
+	if vmi.IsRunning() {
+		// Umount any disks no longer mounted
+		if err := c.hotplugVolumeMounter.Unmount(vmi, cgroupManager); err != nil {
+			return err
+		}
 	}
 
 	return errors.NewAggregate(errorTolerantFeaturesError)
@@ -3189,41 +3215,6 @@ func (c *VirtualMachineController) syncVirtualMachine(client cmdclient.LauncherC
 	}
 
 	return err
-}
-
-func (c *VirtualMachineController) handleHousekeeping(vmi *v1.VirtualMachineInstance, cgroupManager cgroup.Manager, domainExists bool) error {
-
-	if vmi.IsCPUDedicated() && vmi.Spec.Domain.CPU.IsolateEmulatorThread {
-		err := c.configureHousekeepingCgroup(vmi, cgroupManager)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Configure vcpu scheduler for realtime workloads and affine PIT thread for dedicated CPU
-	if vmi.IsRealtimeEnabled() && !vmi.IsRunning() && !vmi.IsFinal() {
-		log.Log.Object(vmi).Info("Configuring vcpus for real time workloads")
-		if err := c.configureVCPUScheduler(vmi); err != nil {
-			return err
-		}
-	}
-	if vmi.IsCPUDedicated() && !vmi.IsRunning() && !vmi.IsFinal() {
-		log.Log.V(3).Object(vmi).Info("Affining PIT thread")
-		if err := c.affinePitThread(vmi); err != nil {
-			return err
-		}
-	}
-	if !domainExists {
-		c.recorder.Event(vmi, k8sv1.EventTypeNormal, v1.Created.String(), VMIDefined)
-	}
-
-	if vmi.IsRunning() {
-		// Umount any disks no longer mounted
-		if err := c.hotplugVolumeMounter.Unmount(vmi, cgroupManager); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (c *VirtualMachineController) getPreallocatedVolumes(vmi *v1.VirtualMachineInstance) []string {
