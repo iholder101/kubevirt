@@ -22,6 +22,7 @@ package clone
 import (
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"regexp"
 	"strings"
 
@@ -42,6 +43,7 @@ func generatePatches(source *k6tv1.VirtualMachine, cloneSpec *clone.VirtualMachi
 	addRemovePatchesFromFilter(patchSet, source.Spec.Template.ObjectMeta.Labels, cloneSpec.Template.LabelFilters, "/spec/template/metadata/labels")
 	addRemovePatchesFromFilter(patchSet, source.Spec.Template.ObjectMeta.Annotations, cloneSpec.Template.AnnotationFilters, "/spec/template/metadata/annotations")
 	addFirmwareUUIDPatches(patchSet, source.Spec.Template.Spec.Domain.Firmware)
+	addRenameDvTemplates(patchSet, source.Spec.DataVolumeTemplates)
 
 	patches, err := generateStringPatchOperations(patchSet)
 	if err != nil {
@@ -155,4 +157,37 @@ func addFirmwareUUIDPatches(patchSet *patch.PatchSet, firmware *k6tv1.Firmware) 
 	}
 
 	patchSet.AddOption(patch.WithReplace("/spec/template/spec/domain/firmware/uuid", ""))
+}
+
+func addRenameDvTemplates(patchSet *patch.PatchSet, dvTemplates []k6tv1.DataVolumeTemplateSpec) {
+	if dvTemplates == nil {
+		return
+	}
+
+	randomizeName := func(name string) string {
+		// Kubernetes object names must not exceed a length of 253, we can be more strict
+		const maxLength = 70
+		const randomSuffixLength = 5
+
+		if len(name)+randomSuffixLength > maxLength {
+			lengthToDrop := len(name) + randomSuffixLength - maxLength
+			name = name[:len(name)-lengthToDrop-1]
+		}
+
+		name += rand.String(randomSuffixLength)
+		return name
+	}
+
+	for idx, dvTemplate := range dvTemplates {
+		switch {
+		case dvTemplate.Name != "":
+			patchSet.AddOption(patch.WithReplace(fmt.Sprintf("/spec/dataVolumeTemplates/%d/name", idx), randomizeName(dvTemplate.Name)))
+		case dvTemplate.GenerateName != "":
+			patchSet.AddOption(patch.WithReplace(fmt.Sprintf("/spec/dataVolumeTemplates/%d/generateName", idx), randomizeName(dvTemplate.GenerateName)))
+		default:
+			log.Log.Errorf("")
+		}
+
+	}
+
 }
