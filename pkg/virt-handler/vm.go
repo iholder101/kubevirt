@@ -2887,7 +2887,7 @@ func (c *VirtualMachineController) affinePitThread(vmi *v1.VirtualMachineInstanc
 }
 
 func (c *VirtualMachineController) configureHousekeepingCgroup(vmi *v1.VirtualMachineInstance, cgroupManager cgroup.Manager) error {
-	if err := cgroupManager.CreateChildCgroup("housekeeping", "cpuset"); err != nil {
+	if _, err := cgroupManager.CreateChildCgroup("housekeeping", "cpuset"); err != nil {
 		log.Log.Reason(err).Error("CreateChildCgroup ")
 		return err
 	}

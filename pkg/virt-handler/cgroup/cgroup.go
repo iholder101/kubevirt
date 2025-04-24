@@ -63,7 +63,7 @@ type Manager interface {
 	SetCpuSet(subcgroup string, cpulist []int) error
 
 	// Create new child cgroup
-	CreateChildCgroup(name string, subSystem string) error
+	CreateChildCgroup(name string, subSystem string) (Manager, error)
 
 	// Attach TID to cgroup
 	AttachTID(subSystem string, subCgroup string, tid int) error
@@ -136,6 +136,47 @@ func newManagerFromPid(pid int, deviceRules []*devices.Rule) (manager Manager, e
 	}
 
 	return manager, err
+}
+
+func newManagerFromChildCgroup(manager Manager, childCgroup string, subsystem string) (Manager, error) {
+	if manager == nil {
+		return nil, fmt.Errorf("cannot create new cgroup manager from nil manager")
+	}
+	if childCgroup == "" {
+		return nil, fmt.Errorf("cannot create new cgroup manager from empty child cgroup")
+	}
+
+	var childManager Manager
+	config := &configs.Cgroup{
+		Path:      cgroupconsts.HostCgroupBasePath,
+		Resources: &configs.Resources{},
+	}
+
+	var err error
+	if manager.GetCgroupVersion() == V2 {
+		parentManagerPath, err := manager.GetBasePathToHostSubsystem(subsystem)
+		if err != nil {
+			return nil, fmt.Errorf("cannot get base path to host subsystem: %v", err)
+		}
+		childManager, err = newV2Manager(config, filepath.Join(parentManagerPath, childCgroup))
+	} else {
+		v1Manager := manager.(*v1Manager)
+		parentSubsystemPath, found := v1Manager.GetPaths()[subsystem]
+		if !found {
+			return nil, fmt.Errorf("subsystem %s not found in v1 manager", subsystem)
+		}
+
+		controllerPaths := map[string]string{
+			subsystem: filepath.Join(parentSubsystemPath, childCgroup),
+		}
+
+		childManager, err = newV1Manager(config, controllerPaths)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cannot get cgroup config from manager: %v", err)
+	}
+
+	return childManager, nil
 }
 
 func NewManagerFromVM(vmi *v1.VirtualMachineInstance, host string) (Manager, error) {

@@ -94,44 +94,45 @@ func (v *v2Manager) GetCpuSet() (string, error) {
 	return getCpuSetPath(v, "cpuset.cpus.effective")
 }
 
-func (v *v2Manager) CreateChildCgroup(name string, subSystem string) error {
+func (v *v2Manager) CreateChildCgroup(name string, subSystem string) (Manager, error) {
 	subSysPath, err := v.GetBasePathToHostSubsystem(subSystem)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	newGroupPath := filepath.Join(subSysPath, name)
 	if _, err = os.Stat(newGroupPath); !errors.Is(err, os.ErrNotExist) {
-		return nil
+		return newManagerFromChildCgroup(v, name, subSystem)
 	}
 
 	// Write "+subsystem" to cgroup.subtree_control
 	wVal := "+" + subSystem
 	err = runc_cgroups.WriteFile(subSysPath, "cgroup.subtree_control", wVal)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Create new cgroup directory
 	err = util.MkdirAllWithNosec(newGroupPath)
 	if err != nil {
 		log.Log.Infof("mkdir %s failed", newGroupPath)
-		return err
+		return nil, err
 	}
 
 	// Enable threaded cgroup controller
 	err = runc_cgroups.WriteFile(newGroupPath, "cgroup.type", "threaded")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Write "+subsystem" to newcgroup/cgroup.subtree_control
 	wVal = "+" + subSystem
 	err = runc_cgroups.WriteFile(newGroupPath, "cgroup.subtree_control", wVal)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+
+	return newManagerFromChildCgroup(v, name, subSystem)
 }
 
 // Attach TID to cgroup. Optionally on a subcgroup of

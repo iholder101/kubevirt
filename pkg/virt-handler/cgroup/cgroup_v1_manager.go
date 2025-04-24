@@ -184,18 +184,18 @@ func init_cgroup(groupPath string, newCgroupName string, subSystem string) (err 
 	return nil
 }
 
-func (v *v1Manager) CreateChildCgroup(name string, subSystem string) error {
+func (v *v1Manager) CreateChildCgroup(name string, subSystem string) (Manager, error) {
 	subSysPath, err := v.GetBasePathToHostSubsystem(subSystem)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	err = init_cgroup(subSysPath, name, subSystem)
 	if err != nil {
 		log.Log.Infof("cannot create child cgroup. err: %v", err)
-		return err
+		return nil, err
 	}
 
-	return nil
+	return newManagerFromChildCgroup(v, name, subSystem)
 }
 
 func (v *v1Manager) GetCgroupThreads() ([]int, error) {
