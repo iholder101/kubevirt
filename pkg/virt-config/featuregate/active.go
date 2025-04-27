@@ -67,6 +67,8 @@ const (
 
 	VirtIOFSConfigVolumesGate = "EnableVirtioFsConfigVolumes"
 	VirtIOFSStorageVolumeGate = "EnableVirtioFsStorageVolumes"
+
+	InPlaceHotplug = "InPlaceHotplug"
 )
 
 func init() {
@@ -92,4 +94,5 @@ func init() {
 	RegisterFeatureGate(FeatureGate{Name: NodeRestrictionGate, State: Alpha})
 	RegisterFeatureGate(FeatureGate{Name: VirtIOFSConfigVolumesGate, State: Alpha})
 	RegisterFeatureGate(FeatureGate{Name: VirtIOFSStorageVolumeGate, State: Alpha})
+	RegisterFeatureGate(FeatureGate{Name: InPlaceHotplug, State: Alpha})
 }
