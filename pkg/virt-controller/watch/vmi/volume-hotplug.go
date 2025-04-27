@@ -173,18 +173,6 @@ func (c *Controller) triggerHotplugPopulation(volume *v1.Volume, vmi *v1.Virtual
 	return nil
 }
 
-func syncHotplugCondition(vmi *v1.VirtualMachineInstance, conditionType v1.VirtualMachineInstanceConditionType) {
-	vmiConditions := controller.NewVirtualMachineInstanceConditionManager()
-	condition := v1.VirtualMachineInstanceCondition{
-		Type:   conditionType,
-		Status: k8sv1.ConditionTrue,
-	}
-	if !vmiConditions.HasCondition(vmi, condition.Type) {
-		vmiConditions.UpdateCondition(vmi, &condition)
-		log.Log.Object(vmi).V(4).Infof("adding hotplug condition %s", conditionType)
-	}
-}
-
 func canMoveToAttachedPhase(currentPhase v1.VolumePhase) bool {
 	return currentPhase == "" || currentPhase == v1.VolumeBound || currentPhase == v1.VolumePending
 }
