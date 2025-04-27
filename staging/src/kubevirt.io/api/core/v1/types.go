@@ -613,6 +613,10 @@ const (
 	VirtualMachineInstanceReasonNotMigratable = "NotMigratable"
 	// Reason means that the volume update change was cancelled
 	VirtualMachineInstanceReasonVolumesChangeCancellation = "VolumesChangeCancellation"
+	// Reason means that hotplug is performed via migration
+	VirtualMachineInstanceReasonHotplugWithMigration = "HotplugWithMigration"
+	// Reason means that hotplug is performed inplace resize
+	VirtualMachineInstanceReasonHotplugInplace = "HotplugInplace"
 )
 
 const (
