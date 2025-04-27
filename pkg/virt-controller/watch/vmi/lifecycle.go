@@ -977,3 +977,15 @@ func preparePodPatch(oldPod, newPod *k8sv1.Pod) *patch.PatchSet {
 		patch.WithReplace("/status/conditions", newPod.Status.Conditions),
 	)
 }
+
+func syncHotplugCondition(vmi *virtv1.VirtualMachineInstance, conditionType virtv1.VirtualMachineInstanceConditionType) {
+	vmiConditions := controller.NewVirtualMachineInstanceConditionManager()
+	condition := virtv1.VirtualMachineInstanceCondition{
+		Type:   conditionType,
+		Status: k8sv1.ConditionTrue,
+	}
+	if !vmiConditions.HasCondition(vmi, condition.Type) {
+		vmiConditions.UpdateCondition(vmi, &condition)
+		log.Log.Object(vmi).V(4).Infof("adding hotplug condition %s", conditionType)
+	}
+}
