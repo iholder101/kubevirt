@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"slices"
 	"sync"
 	"time"
 
@@ -217,7 +218,7 @@ func (c *WorkloadUpdateController) updateVmi(_, obj interface{}) {
 		return
 	}
 
-	if !(isHotplugInProgress(vmi) || isVolumesUpdateInProgress(vmi)) ||
+	if !(c.isHotplugMigrationRequired(vmi) || isVolumesUpdateInProgress(vmi)) ||
 		migrationutils.IsMigrating(vmi) {
 		return
 	}
@@ -316,10 +317,34 @@ func (c *WorkloadUpdateController) isOutdated(vmi *virtv1.VirtualMachineInstance
 	return false
 }
 
-func isHotplugInProgress(vmi *virtv1.VirtualMachineInstance) bool {
+func (c *WorkloadUpdateController) isHotplugMigrationRequired(vmi *virtv1.VirtualMachineInstance) bool {
+	type VMCondition = virtv1.VirtualMachineInstanceCondition
+
 	condManager := controller.NewVirtualMachineInstanceConditionManager()
-	return condManager.HasCondition(vmi, virtv1.VirtualMachineInstanceVCPUChange) ||
-		condManager.HasConditionWithStatus(vmi, virtv1.VirtualMachineInstanceMemoryChange, k8sv1.ConditionTrue)
+	hotplugConditions := []*VMCondition{
+		condManager.GetCondition(vmi, virtv1.VirtualMachineInstanceVCPUChange),
+		condManager.GetCondition(vmi, virtv1.VirtualMachineInstanceMemoryChange),
+	}
+
+	if slices.Equal(hotplugConditions, []*VMCondition{nil, nil}) {
+		return false
+	}
+
+	if c.clusterConfig.InPlaceHotplugEnabled() {
+		if slices.ContainsFunc(hotplugConditions, func(condition *VMCondition) bool {
+			return condition.Reason == virtv1.VirtualMachineInstanceReasonHotplugInplace
+		}) {
+			return false
+		}
+	}
+
+	if !slices.ContainsFunc(hotplugConditions, func(condition *VMCondition) bool {
+		return condition != nil && condition.Status == k8sv1.ConditionTrue
+	}) {
+		return false
+	}
+
+	return true
 }
 
 func isVolumesUpdateInProgress(vmi *virtv1.VirtualMachineInstance) bool {
@@ -334,7 +359,7 @@ func (c *WorkloadUpdateController) doesRequireMigration(vmi *virtv1.VirtualMachi
 	if metav1.HasAnnotation(vmi.ObjectMeta, v1.WorkloadUpdateMigrationAbortionAnnotation) {
 		return false
 	}
-	if isHotplugInProgress(vmi) {
+	if c.isHotplugMigrationRequired(vmi) {
 		return true
 	}
 	if isVolumesUpdateInProgress(vmi) {
@@ -349,7 +374,7 @@ func (c *WorkloadUpdateController) shouldAbortMigration(vmi *virtv1.VirtualMachi
 	if metav1.HasAnnotation(vmi.ObjectMeta, virtv1.WorkloadUpdateMigrationAbortionAnnotation) {
 		return numMig > 0
 	}
-	if isHotplugInProgress(vmi) {
+	if c.isHotplugMigrationRequired(vmi) {
 		return false
 	}
 	if isVolumesUpdateInProgress(vmi) {
