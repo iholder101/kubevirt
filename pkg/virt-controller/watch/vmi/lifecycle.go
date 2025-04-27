@@ -417,7 +417,7 @@ func (c *Controller) updateStatus(vmi *virtv1.VirtualMachineInstance, pod *k8sv1
 		}
 
 		if c.requireCPUHotplug(vmiCopy) {
-			syncHotplugCondition(vmiCopy, virtv1.VirtualMachineInstanceVCPUChange)
+			c.syncHotplugCondition(vmiCopy, virtv1.VirtualMachineInstanceVCPUChange)
 		}
 
 		if c.requireMemoryHotplug(vmiCopy) {
@@ -956,7 +956,7 @@ func (c *Controller) requireMemoryHotplug(vmi *virtv1.VirtualMachineInstance) bo
 }
 
 func (c *Controller) syncMemoryHotplug(vmi *virtv1.VirtualMachineInstance) {
-	syncHotplugCondition(vmi, virtv1.VirtualMachineInstanceMemoryChange)
+	c.syncHotplugCondition(vmi, virtv1.VirtualMachineInstanceMemoryChange)
 	// store additionalGuestMemoryOverheadRatio
 	overheadRatio := c.clusterConfig.GetConfig().AdditionalGuestMemoryOverheadRatio
 	if overheadRatio != nil {
@@ -978,14 +978,29 @@ func preparePodPatch(oldPod, newPod *k8sv1.Pod) *patch.PatchSet {
 	)
 }
 
-func syncHotplugCondition(vmi *virtv1.VirtualMachineInstance, conditionType virtv1.VirtualMachineInstanceConditionType) {
+func (c *Controller) syncHotplugCondition(vmi *virtv1.VirtualMachineInstance, conditionType virtv1.VirtualMachineInstanceConditionType) {
 	vmiConditions := controller.NewVirtualMachineInstanceConditionManager()
 	condition := virtv1.VirtualMachineInstanceCondition{
 		Type:   conditionType,
 		Status: k8sv1.ConditionTrue,
 	}
+
+	if c.clusterConfig.InPlaceHotplugEnabled() && isInplaceHotplugSupported(vmi) {
+		condition.Reason = virtv1.VirtualMachineInstanceReasonHotplugInplace
+	} else {
+		condition.Reason = virtv1.VirtualMachineInstanceReasonHotplugWithMigration
+	}
+
 	if !vmiConditions.HasCondition(vmi, condition.Type) {
 		vmiConditions.UpdateCondition(vmi, &condition)
 		log.Log.Object(vmi).V(4).Infof("adding hotplug condition %s", conditionType)
 	}
+}
+
+func isInplaceHotplugSupported(vmi *virtv1.VirtualMachineInstance) bool {
+	if vmi.Spec.Domain.CPU != nil && vmi.Spec.Domain.CPU.DedicatedCPUPlacement {
+		return false
+	}
+
+	return true
 }
