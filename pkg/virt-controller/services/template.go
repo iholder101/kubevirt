@@ -143,6 +143,7 @@ type TemplateService interface {
 	RenderExporterManifest(vmExport *exportv1.VirtualMachineExport, namePrefix string) *k8sv1.Pod
 	GetLauncherImage() string
 	IsPPC64() bool
+	NewResourceRenderer(vmi *v1.VirtualMachineInstance) (*ResourceRenderer, error)
 }
 
 type templateService struct {
@@ -381,7 +382,8 @@ func (t *templateService) renderLaunchManifest(vmi *v1.VirtualMachineInstance, i
 	if err != nil {
 		return nil, err
 	}
-	resourceRenderer, err := t.newResourceRenderer(vmi, networkToResourceMap)
+
+	resourceRenderer, err := t.NewResourceRendererWithNetworkToResource(vmi, networkToResourceMap)
 	if err != nil {
 		return nil, err
 	}
@@ -873,7 +875,7 @@ func (t *templateService) newVolumeRenderer(vmi *v1.VirtualMachineInstance, name
 	return volumeRenderer, nil
 }
 
-func (t *templateService) newResourceRenderer(vmi *v1.VirtualMachineInstance, networkToResourceMap map[string]string) (*ResourceRenderer, error) {
+func (t *templateService) NewResourceRendererWithNetworkToResource(vmi *v1.VirtualMachineInstance, networkToResourceMap map[string]string) (*ResourceRenderer, error) {
 	vmiResources := vmi.Spec.Domain.Resources
 	baseOptions := []ResourceRendererOption{
 		WithEphemeralStorageRequest(),
@@ -886,6 +888,15 @@ func (t *templateService) newResourceRenderer(vmi *v1.VirtualMachineInstance, ne
 
 	options := append(baseOptions, t.VMIResourcePredicates(vmi, networkToResourceMap).Apply()...)
 	return NewResourceRenderer(vmiResources.Limits, vmiResources.Requests, options...), nil
+}
+
+func (t *templateService) NewResourceRenderer(vmi *v1.VirtualMachineInstance) (*ResourceRenderer, error) {
+	networkToResourceMap, err := multus.NetworkToResource(t.virtClient, vmi)
+	if err != nil {
+		return nil, err
+	}
+
+	return t.NewResourceRendererWithNetworkToResource(vmi, networkToResourceMap)
 }
 
 func sidecarVolumeMount(containerName string) k8sv1.VolumeMount {
