@@ -21,6 +21,7 @@ package vmi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -200,7 +201,15 @@ func (c *Controller) sync(vmi *virtv1.VirtualMachineInstance, pod *k8sv1.Pod, da
 				}
 			}
 		}
+
+		if c.clusterConfig.InPlaceHotplugEnabled() {
+			pod, err = c.inplaceUpdatePodResources(vmi, pod)
+			if err != nil {
+				return common.NewSyncError(fmt.Errorf("failed to in-place update pod resources: %v", err), controller.FailedPodPatchReason), pod
+			}
+		}
 	}
+
 	return nil, pod
 }
 
@@ -417,11 +426,11 @@ func (c *Controller) updateStatus(vmi *virtv1.VirtualMachineInstance, pod *k8sv1
 		}
 
 		if c.requireCPUHotplug(vmiCopy) {
-			c.syncHotplugCondition(vmiCopy, virtv1.VirtualMachineInstanceVCPUChange)
+			c.syncHotplugCondition(vmiCopy, pod, virtv1.VirtualMachineInstanceVCPUChange)
 		}
 
 		if c.requireMemoryHotplug(vmiCopy) {
-			c.syncMemoryHotplug(vmiCopy)
+			c.syncMemoryHotplug(vmiCopy, pod)
 		}
 
 		if c.requireVolumesUpdate(vmiCopy) {
@@ -955,8 +964,8 @@ func (c *Controller) requireMemoryHotplug(vmi *virtv1.VirtualMachineInstance) bo
 	return vmi.Spec.Domain.Memory.Guest.Value() != vmi.Status.Memory.GuestRequested.Value()
 }
 
-func (c *Controller) syncMemoryHotplug(vmi *virtv1.VirtualMachineInstance) {
-	c.syncHotplugCondition(vmi, virtv1.VirtualMachineInstanceMemoryChange)
+func (c *Controller) syncMemoryHotplug(vmi *virtv1.VirtualMachineInstance, pod *k8sv1.Pod) {
+	c.syncHotplugCondition(vmi, pod, virtv1.VirtualMachineInstanceMemoryChange)
 	// store additionalGuestMemoryOverheadRatio
 	overheadRatio := c.clusterConfig.GetConfig().AdditionalGuestMemoryOverheadRatio
 	if overheadRatio != nil {
@@ -978,7 +987,7 @@ func preparePodPatch(oldPod, newPod *k8sv1.Pod) *patch.PatchSet {
 	)
 }
 
-func (c *Controller) syncHotplugCondition(vmi *virtv1.VirtualMachineInstance, conditionType virtv1.VirtualMachineInstanceConditionType) {
+func (c *Controller) syncHotplugCondition(vmi *virtv1.VirtualMachineInstance, pod *k8sv1.Pod, conditionType virtv1.VirtualMachineInstanceConditionType) {
 	vmiConditions := controller.NewVirtualMachineInstanceConditionManager()
 	condition := virtv1.VirtualMachineInstanceCondition{
 		Type:   conditionType,
@@ -987,11 +996,17 @@ func (c *Controller) syncHotplugCondition(vmi *virtv1.VirtualMachineInstance, co
 
 	if c.clusterConfig.InPlaceHotplugEnabled() && isInplaceHotplugSupported(vmi) {
 		condition.Reason = virtv1.VirtualMachineInstanceReasonHotplugInplace
+		if isPodInplaceHotplugCompleted(pod) {
+			condition.Message = "pending for pod resize"
+		} else {
+			condition.Message = "pending for guest resize"
+		}
 	} else {
 		condition.Reason = virtv1.VirtualMachineInstanceReasonHotplugWithMigration
 	}
 
-	if !vmiConditions.HasCondition(vmi, condition.Type) {
+	existingCond := vmiConditions.GetCondition(vmi, condition.Type)
+	if existingCond == nil || !equality.Semantic.DeepEqual(existingCond, &condition) {
 		vmiConditions.UpdateCondition(vmi, &condition)
 		log.Log.Object(vmi).V(4).Infof("adding hotplug condition %s", conditionType)
 	}
@@ -1003,4 +1018,83 @@ func isInplaceHotplugSupported(vmi *virtv1.VirtualMachineInstance) bool {
 	}
 
 	return true
+}
+
+func isPodInplaceHotplugCompleted(pod *k8sv1.Pod) bool {
+	for _, containerStatus := range pod.Status.ContainerStatuses {
+		containerSpecIdx := slices.IndexFunc(pod.Spec.Containers, func(container k8sv1.Container) bool { return container.Name == containerStatus.Name })
+		if containerSpecIdx == -1 {
+			log.Log.Errorf("container %s not found in pod %s", containerStatus.Name, pod.Name)
+		}
+
+		containerSpec := pod.Spec.Containers[containerSpecIdx]
+		for _, resource := range []k8sv1.ResourceName{k8sv1.ResourceMemory, k8sv1.ResourceCPU} {
+			statusResource := containerStatus.Resources.Requests[resource]
+			specResource := containerSpec.Resources.Requests[resource]
+			if statusResource != specResource {
+				log.Log.Object(pod).Infof("in-place hotplug not completed for container %s, resource %s: %s != %s", containerStatus.Name, resource, statusResource.String(), specResource.String())
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func (c *Controller) inplaceUpdatePodResources(vmi *virtv1.VirtualMachineInstance, pod *k8sv1.Pod) (*k8sv1.Pod, error) {
+	var oldResources *k8sv1.ResourceRequirements
+	for _, container := range pod.Spec.Containers {
+		if container.Name != "compute" {
+			continue
+		}
+		oldResources = &container.Resources
+	}
+
+	if oldResources == nil {
+		return nil, fmt.Errorf("no compute container found in pod %s spec", pod.Name)
+	}
+
+	resourceRenderer, err := c.templateService.NewResourceRenderer(vmi)
+	if err != nil {
+		return nil, fmt.Errorf("error creating new resource renderer: %v", err)
+	}
+	newResources := resourceRenderer.ResourceRequirements()
+
+	if oldResources.Requests[k8sv1.ResourceMemory] == newResources.Requests[k8sv1.ResourceMemory] &&
+		oldResources.Requests[k8sv1.ResourceCPU] == newResources.Requests[k8sv1.ResourceCPU] &&
+		oldResources.Limits[k8sv1.ResourceMemory] == newResources.Limits[k8sv1.ResourceMemory] &&
+		oldResources.Limits[k8sv1.ResourceCPU] == newResources.Limits[k8sv1.ResourceCPU] {
+		return pod, nil
+	}
+
+	podPatch := k8sv1.Pod{
+		Spec: k8sv1.PodSpec{
+			Containers: []k8sv1.Container{
+				{
+					Name:      "compute",
+					Resources: newResources,
+				},
+			},
+		},
+	}
+
+	// Marshal the minimal Pod struct into JSON.
+	patchPayload, err := json.Marshal(podPatch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal pod patch: %v", err)
+	}
+
+	patchedPod, err := c.clientset.CoreV1().Pods(pod.Namespace).Patch(
+		context.Background(),
+		pod.Name,
+		types.MergePatchType,
+		patchPayload,
+		v1.PatchOptions{},
+		"resize",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to patch pod: %v", err)
+	}
+
+	return patchedPod, nil
 }
