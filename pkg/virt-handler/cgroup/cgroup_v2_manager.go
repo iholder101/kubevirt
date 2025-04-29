@@ -33,6 +33,11 @@ func newV2Manager(config *runc_configs.Cgroup, dirPath string) (Manager, error) 
 		return nil, err
 	}
 
+	log.Log.Infof("ihol3 config: %+v", config)
+	log.Log.Infof("ihol3 config.Rootless: %+v", config.Rootless)
+	log.Log.Infof("ihol3 config.Resources: %+v", config.Resources)
+	log.Log.Infof("ihol3 config.Resources.Devices: %+v", config.Resources.Devices)
+	log.Log.Infof("ihol3 manager: %+v", runcManager)
 	return newCustomizedV2Manager(runcManager, config.Rootless, config.Resources.Devices, execVirtChrootCgroups)
 }
 
