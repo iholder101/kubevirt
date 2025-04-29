@@ -584,6 +584,8 @@ func (c *Controller) VMICPUsPatch(vm *virtv1.VirtualMachine, vmi *virtv1.Virtual
 		log.Log.Object(vmi).Infof(logMsg)
 	}
 
+	log.Log.Object(vmi).Infof("ihol3 patching VMI for cpu. err=%v", err)
+
 	return err
 }
 

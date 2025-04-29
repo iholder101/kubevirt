@@ -426,10 +426,12 @@ func (c *Controller) updateStatus(vmi *virtv1.VirtualMachineInstance, pod *k8sv1
 		}
 
 		if c.requireCPUHotplug(vmiCopy) {
+			log.Log.Object(vmi).Infof("ihol3 CPU hotplug requred")
 			c.syncHotplugCondition(vmiCopy, pod, virtv1.VirtualMachineInstanceVCPUChange)
 		}
 
 		if c.requireMemoryHotplug(vmiCopy) {
+			log.Log.Object(vmi).Infof("ihol3 memory hotplug requred")
 			c.syncMemoryHotplug(vmiCopy, pod)
 		}
 
@@ -1008,7 +1010,7 @@ func (c *Controller) syncHotplugCondition(vmi *virtv1.VirtualMachineInstance, po
 	existingCond := vmiConditions.GetCondition(vmi, condition.Type)
 	if existingCond == nil || !equality.Semantic.DeepEqual(existingCond, &condition) {
 		vmiConditions.UpdateCondition(vmi, &condition)
-		log.Log.Object(vmi).V(4).Infof("adding hotplug condition %s", conditionType)
+		log.Log.Object(vmi).Infof("ihol3 adding hotplug condition %s, %s, %s", conditionType, condition.Reason, condition.Message)
 	}
 }
 
@@ -1054,6 +1056,8 @@ func (c *Controller) inplaceUpdatePodResources(vmi *virtv1.VirtualMachineInstanc
 		return nil, fmt.Errorf("no compute container found in pod %s spec", pod.Name)
 	}
 
+	log.Log.Object(vmi).Infof("ihol3 inplaceUpdatePodResources()")
+
 	resourceRenderer, err := c.templateService.NewResourceRenderer(vmi)
 	if err != nil {
 		return nil, fmt.Errorf("error creating new resource renderer: %v", err)
@@ -1092,6 +1096,9 @@ func (c *Controller) inplaceUpdatePodResources(vmi *virtv1.VirtualMachineInstanc
 		v1.PatchOptions{},
 		"resize",
 	)
+
+	log.Log.Object(vmi).Infof("ihol3 patched for for resize. err=%v", err)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to patch pod: %v", err)
 	}

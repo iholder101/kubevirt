@@ -3671,6 +3671,7 @@ func (c *VirtualMachineController) updateMachineType(vmi *v1.VirtualMachineInsta
 }
 
 func (c *VirtualMachineController) hotplugCPU(vmi *v1.VirtualMachineInstance, client cmdclient.LauncherClient) error {
+	log.Log.Object(vmi).Infof("ihol3 hotplugCPU()")
 	vmiConditions := controller.NewVirtualMachineInstanceConditionManager()
 	cpuHotplugCondition := vmiConditions.GetCondition(vmi, v1.VirtualMachineInstanceVCPUChange)
 	if cpuHotplugCondition == nil {
@@ -3679,6 +3680,7 @@ func (c *VirtualMachineController) hotplugCPU(vmi *v1.VirtualMachineInstance, cl
 
 	if c.clusterConfig.InPlaceHotplugEnabled() {
 		if cpuHotplugCondition.Message == "pending for pod resize" {
+			log.Log.Object(vmi).Infof("ihol3 hotplugCPU(): pending for pod resize")
 			// If the pod resize is pending, we need to wait for the pod to be resized before proceeding with CPU hotplug
 			c.queue.AddAfter(controller.VirtualMachineInstanceKey(vmi), time.Second*1)
 			return nil
@@ -3688,6 +3690,7 @@ func (c *VirtualMachineController) hotplugCPU(vmi *v1.VirtualMachineInstance, cl
 	removeVMIVCPUChangeConditionAndLabel := func() {
 		delete(vmi.Labels, v1.VirtualMachinePodCPULimitsLabel)
 		vmiConditions.RemoveCondition(vmi, v1.VirtualMachineInstanceVCPUChange)
+		log.Log.Object(vmi).Infof("ihol3 hotplugCPU(): removing hotplug condition")
 	}
 	defer removeVMIVCPUChangeConditionAndLabel()
 
@@ -3715,9 +3718,12 @@ func (c *VirtualMachineController) hotplugCPU(vmi *v1.VirtualMachineInstance, cl
 		c.capabilities,
 		c.clusterConfig)
 
-	if err := client.SyncVirtualMachineCPUs(vmi, options); err != nil {
+	err := client.SyncVirtualMachineCPUs(vmi, options)
+	if err != nil {
 		return err
 	}
+
+	log.Log.Object(vmi).Infof("ihol3 hotplugCPU(): yncVirtualMachineCPUs, err=%v", err)
 
 	if vmi.Status.CurrentCPUTopology == nil {
 		vmi.Status.CurrentCPUTopology = &v1.CPUTopology{}

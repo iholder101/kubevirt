@@ -119,7 +119,7 @@ var _ = Describe("[sig-compute]CPU Hotplug", decorators.SigCompute, decorators.S
 			}
 			return
 		}
-		It("[test_id:10811]should successfully plug vCPUs", func() {
+		DescribeTable("[test_id:10811]should successfully plug vCPUs", func(isInplaceHotplug bool) {
 			By("Creating a running VM with 1 socket and 2 max sockets")
 			const (
 				maxSockets uint32 = 2
@@ -174,23 +174,27 @@ var _ = Describe("[sig-compute]CPU Hotplug", decorators.SigCompute, decorators.S
 			// Need to wait for the hotplug to begin.
 			Eventually(ThisVMI(vmi), 1*time.Minute, 2*time.Second).Should(HaveConditionTrue(v1.VirtualMachineInstanceVCPUChange))
 
-			By("Ensuring live-migration started")
-			var migration *v1.VirtualMachineInstanceMigration
-			Eventually(func() bool {
-				migrations, err := virtClient.VirtualMachineInstanceMigration(vm.Namespace).List(context.Background(), k8smetav1.ListOptions{})
-				Expect(err).ToNot(HaveOccurred())
-				for _, mig := range migrations.Items {
-					if mig.Spec.VMIName == vmi.Name {
-						migration = mig.DeepCopy()
-						return true
+			if !isInplaceHotplug {
+				By("Ensuring live-migration started")
+				var migration *v1.VirtualMachineInstanceMigration
+				Eventually(func() bool {
+					migrations, err := virtClient.VirtualMachineInstanceMigration(vm.Namespace).List(context.Background(), k8smetav1.ListOptions{})
+					Expect(err).ToNot(HaveOccurred())
+					for _, mig := range migrations.Items {
+						if mig.Spec.VMIName == vmi.Name {
+							migration = mig.DeepCopy()
+							return true
+						}
 					}
-				}
-				return false
-			}, 30*time.Second, time.Second).Should(BeTrue())
-			libmigration.ExpectMigrationToSucceedWithDefaultTimeout(virtClient, migration)
+					return false
+				}, 30*time.Second, time.Second).Should(BeTrue())
+				libmigration.ExpectMigrationToSucceedWithDefaultTimeout(virtClient, migration)
+			} else {
+				By("Waiting for hot change CPU condition to disappear")
+				Eventually(ThisVMI(vmi), 1*time.Minute, 2*time.Second).ShouldNot(HaveConditionTrue(v1.VirtualMachineInstanceVCPUChange))
+			}
 
 			By("Ensuring the libvirt domain has 4 enabled cores")
-
 			Eventually(func() error {
 				domSpec, err = libdomain.GetRunningVMIDomainSpec(vmi)
 				return err
@@ -215,20 +219,25 @@ var _ = Describe("[sig-compute]CPU Hotplug", decorators.SigCompute, decorators.S
 			Expect(err).NotTo(HaveOccurred())
 			Eventually(ThisVM(vm), 4*time.Minute, 2*time.Second).Should(HaveConditionMissingOrFalse(v1.VirtualMachineRestartRequired))
 
-			By("Changing the number of CPU cores")
-			patchData, err = patch.GenerateTestReplacePatch("/spec/template/spec/domain/cpu/cores", 2, 4)
-			Expect(err).NotTo(HaveOccurred())
-			_, err = virtClient.VirtualMachine(vm.Namespace).Patch(context.Background(), vm.Name, types.JSONPatchType, patchData, k8smetav1.PatchOptions{})
-			Expect(err).ToNot(HaveOccurred())
+			if !isInplaceHotplug { // TODO: is this needed?
+				By("Changing the number of CPU cores")
+				patchData, err = patch.GenerateTestReplacePatch("/spec/template/spec/domain/cpu/cores", 2, 4)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = virtClient.VirtualMachine(vm.Namespace).Patch(context.Background(), vm.Name, types.JSONPatchType, patchData, k8smetav1.PatchOptions{})
+				Expect(err).ToNot(HaveOccurred())
 
-			By("Ensuring the vm has a RestartRequired condition")
-			Eventually(ThisVM(vm), 4*time.Minute, 2*time.Second).Should(HaveConditionTrue(v1.VirtualMachineRestartRequired))
+				By("Ensuring the vm has a RestartRequired condition")
+				Eventually(ThisVM(vm), 4*time.Minute, 2*time.Second).Should(HaveConditionTrue(v1.VirtualMachineRestartRequired))
 
-			By("Restarting the VM and expecting RestartRequired to be gone")
-			err = virtClient.VirtualMachine(vm.Namespace).Restart(context.Background(), vm.Name, &v1.RestartOptions{})
-			Expect(err).NotTo(HaveOccurred())
-			Eventually(ThisVM(vm), 4*time.Minute, 2*time.Second).Should(HaveConditionMissingOrFalse(v1.VirtualMachineRestartRequired))
-		})
+				By("Restarting the VM and expecting RestartRequired to be gone")
+				err = virtClient.VirtualMachine(vm.Namespace).Restart(context.Background(), vm.Name, &v1.RestartOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				Eventually(ThisVM(vm), 4*time.Minute, 2*time.Second).Should(HaveConditionMissingOrFalse(v1.VirtualMachineRestartRequired))
+			}
+		},
+			Entry("with live-migration", false),
+			FEntry("with in-place hotplug", true),
+		)
 
 		It("[test_id:10822]should successfully plug guaranteed vCPUs", decorators.RequiresTwoWorkerNodesWithCPUManager, func() {
 			checks.ExpectAtLeastTwoWorkerNodesWithCPUManager(virtClient)
