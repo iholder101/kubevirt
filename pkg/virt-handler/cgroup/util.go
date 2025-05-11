@@ -239,14 +239,13 @@ func GenerateDefaultDeviceRules() []*devices.Rule {
 
 	// Add PTY slaves. See this for more info:
 	// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/admin-guide/devices.txt?h=v5.14#n2084
-	const ptyFirstMajor int64 = 136
-	const ptyMajors int64 = 16
+	const ptyFirstMajor, ptyLastMajor int64 = 136, 143
 
-	for i := int64(0); i < ptyMajors; i++ {
+	for ptyMajor := ptyFirstMajor; ptyMajor <= ptyLastMajor; ptyMajor++ {
 		defaultRules = append(defaultRules,
 			&devices.Rule{
 				Type:        devices.CharDevice,
-				Major:       ptyFirstMajor + i,
+				Major:       ptyMajor,
 				Minor:       -1,
 				Permissions: permissions,
 				Allow:       toAllow,
