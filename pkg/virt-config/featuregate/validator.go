@@ -20,8 +20,9 @@
 package featuregate
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"slices"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "kubevirt.io/api/core/v1"
 )
 
@@ -39,4 +40,20 @@ func ValidateFeatureGates(featureGates []string, vmiSpec *v1.VirtualMachineInsta
 		}
 	}
 	return causes
+}
+
+func GetEnabledFeatureGates(featureGates []v1.FeatureGateConfiguration, legacyFeatureGates []string) []string {
+	enabledFeatureGates := slices.Clone(legacyFeatureGates)
+
+	for _, fgConfig := range featureGates {
+		enabled := fgConfig.Enabled == nil || *fgConfig.Enabled
+
+		if enabled && !slices.Contains(enabledFeatureGates, fgConfig.Name) {
+			enabledFeatureGates = append(enabledFeatureGates, fgConfig.Name)
+		} else if len(enabledFeatureGates) > 0 {
+			enabledFeatureGates = slices.DeleteFunc(enabledFeatureGates, func(fgName string) bool { return fgName == fgConfig.Name })
+		}
+	}
+
+	return enabledFeatureGates
 }
