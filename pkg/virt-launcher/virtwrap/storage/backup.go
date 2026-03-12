@@ -35,6 +35,7 @@ import (
 	v1 "kubevirt.io/api/core/v1"
 	"kubevirt.io/client-go/log"
 
+	osdisk "kubevirt.io/kubevirt/pkg/os/disk"
 	kutil "kubevirt.io/kubevirt/pkg/util"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/metadata"
 	api "kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/api"
@@ -48,12 +49,9 @@ const (
 	backupTimeXMLFormat               = "2006-01-02_15-04-05"
 	freezeFailedMsg                   = "Failed freezing guest filesystem: %s"
 	unfreezeFailedMsg                 = "Failed to unfreeze filesystem after backup completion"
-	qmpQueryBlockNodesCmd             = `{"execute":"query-named-block-nodes"}`
-	operationCanceledMsg              = "Operation canceled"
-
-	pullBackupSocketDir  = "/var/run/kubevirt/sockets"
-	pullBackupSocketName = "backup-nbd-sock"
 )
+
+var getDiskInfoWithForceShare = osdisk.GetDiskInfoWithForceShare
 
 func (m *StorageManager) BackupVirtualMachine(vmi *v1.VirtualMachineInstance, backupOptions *backupv1.BackupOptions) error {
 	logger := log.Log.With("backupName", backupOptions.BackupName)
@@ -115,7 +113,6 @@ func (m *StorageManager) initializeBackupMetadata(backupOptions *backupv1.Backup
 		Name:           backupOptions.BackupName,
 		StartTimestamp: backupOptions.BackupStartTime,
 		SkipQuiesce:    backupOptions.SkipQuiesce,
-		Mode:           string(backupOptions.Mode),
 	}
 	m.metadataCache.Backup.Store(b)
 	log.Log.Infof("Initialized backup metadata: %v", b)
@@ -139,7 +136,7 @@ func (m *StorageManager) backup(vmi *v1.VirtualMachineInstance, backupOptions *b
 	}
 
 	var backupPath string
-	if backupOptions.TargetPath != nil {
+	if backupOptions.PushPath != nil {
 		backupPath = getBackupPath(backupOptions, vmi.Name)
 		if err := kutil.MkdirAllWithNosec(backupPath); err != nil {
 			logger.Reason(err).Error("error creating dir for backup")
@@ -212,14 +209,6 @@ func generateDomainBackup(disks []api.Disk, backupOptions *backupv1.BackupOption
 		log.Log.Infof("Generating incremental backup %s from checkpoint: %s", backupOptions.BackupName, *backupOptions.Incremental)
 		domainBackup.Incremental = backupOptions.Incremental
 	}
-	if backupOptions.Mode == backupv1.PullMode {
-		domainBackup.Server = &api.DomainBackupServer{
-			Transport: api.BackupUnixTransport,
-			Socket:    filepath.Join(pullBackupSocketDir, pullBackupSocketName),
-		}
-	}
-	backupTime := backupTimeFormatted(backupOptions.BackupStartTime)
-	checkpointName := fmt.Sprintf("%s-%s", backupOptions.BackupName, backupTime)
 	backupDisks := &api.BackupDisks{}
 	checkpointDisks := &api.CheckpointDisks{}
 	var backupVolumesInfo []backupv1.BackupVolumeInfo
@@ -235,15 +224,13 @@ func generateDomainBackup(disks []api.Disk, backupOptions *backupv1.BackupOption
 			Name: disk.Target.Device,
 		}
 		volumeName := converter.GetVolumeNameByDisk(disk)
-		if DiskHasDataStore(&disk) {
+		if disk.Source.DataStore != nil {
 			backupDisk.Backup = "yes"
 			backupDisk.Type = "file"
-			if backupOptions.Mode == backupv1.PullMode {
-				backupDisk.ExportName = volumeName
-				backupDisk.ExportBitmap = checkpointName
-			}
-			if backupOptions.TargetPath != nil {
-				setBackupDiskTargetPath(&backupDisk, backupOptions, volumeName, backupPath)
+			if backupOptions.PushPath != nil {
+				backupDisk.Target = &api.BackupTarget{
+					File: targetQCOW2File(backupPath, backupOptions.BackupName, volumeName),
+				}
 			}
 			checkpointDisk.Checkpoint = "bitmap"
 			backupVolumesInfo = append(backupVolumesInfo, backupv1.BackupVolumeInfo{
@@ -259,6 +246,8 @@ func generateDomainBackup(disks []api.Disk, backupOptions *backupv1.BackupOption
 	}
 
 	domainBackup.BackupDisks = backupDisks
+	backupTime := backupTimeFormatted(backupOptions.BackupStartTime)
+	checkpointName := fmt.Sprintf("%s-%s", backupOptions.BackupName, backupTime)
 	domainCheckpoint := &api.DomainCheckpoint{
 		Name:            checkpointName,
 		CheckpointDisks: checkpointDisks,
@@ -266,29 +255,15 @@ func generateDomainBackup(disks []api.Disk, backupOptions *backupv1.BackupOption
 	return domainBackup, domainCheckpoint, backupVolumesInfo
 }
 
-func setBackupDiskTargetPath(backupDisk *api.BackupDisk, backupOptions *backupv1.BackupOptions, volumeName string, backupPath string) {
-	targetFile := targetQCOW2File(backupPath, backupOptions.BackupName, volumeName)
-	switch backupOptions.Mode {
-	case backupv1.PushMode:
-		backupDisk.Target = &api.BackupTarget{
-			File: targetFile,
-		}
-	case backupv1.PullMode:
-		backupDisk.Scratch = &api.BackupScratch{
-			File: targetFile,
-		}
-	}
-}
-
 func getBackupPath(backupOptions *backupv1.BackupOptions, vmiName string) string {
 	backupTime := backupTimeFormatted(backupOptions.BackupStartTime)
 	backupNameWithTime := fmt.Sprintf("%s-%s", backupOptions.BackupName, backupTime)
-	return filepath.Join(*backupOptions.TargetPath, vmiName, backupNameWithTime)
+	return filepath.Join(*backupOptions.PushPath, vmiName, backupNameWithTime)
 }
 
-func targetQCOW2File(targetPath, backupName, volumeName string) string {
+func targetQCOW2File(pushPath, backupName, volumeName string) string {
 	fileName := fmt.Sprintf("%s-%s.qcow2", backupName, volumeName)
-	return filepath.Join(targetPath, fileName)
+	return filepath.Join(pushPath, fileName)
 }
 
 func backupTimeFormatted(time *metav1.Time) string {
@@ -324,10 +299,8 @@ func HandleBackupJobCompletedEvent(domain cli.VirDomain, event *libvirt.DomainEv
 		logger.Info("Backup has been completed successfully")
 	case libvirt.DOMAIN_JOB_CANCELLED:
 		logger.Info("Backup has been aborted")
+		message = "backup aborted"
 		failed = backupMetadata.Mode == string(backupv1.PushMode)
-		if failed {
-			message = "backup aborted"
-		}
 	case libvirt.DOMAIN_JOB_FAILED:
 		logger.Info("Backup has failed")
 		failed = true
@@ -335,10 +308,7 @@ func HandleBackupJobCompletedEvent(domain cli.VirDomain, event *libvirt.DomainEv
 		message = fmt.Sprintf("unexpected job completion type: %d", event.Info.Type)
 		failed = true
 	}
-
-	// If we successfully aborted but we didn't fail (i.e., PullMode)
-	// avoid propagating an error message (i.e., Operation canceled)
-	if event.Info.ErrorMessageSet && !(backupMetadata.Mode == string(backupv1.PullMode) && event.Info.ErrorMessage == operationCanceledMsg) {
+	if event.Info.ErrorMessageSet {
 		err := event.Info.ErrorMessage
 		if message == "" {
 			message = err
@@ -368,10 +338,27 @@ func HandleBackupJobCompletedEvent(domain cli.VirDomain, event *libvirt.DomainEv
 
 func (m *StorageManager) AbortVirtualMachineBackup(vmi *v1.VirtualMachineInstance, backupOptions *backupv1.BackupOptions) error {
 	backupMetadata, exists := m.metadataCache.Backup.Load()
-	if err := checkBackupEligibility(exists, backupMetadata, backupOptions); err != nil {
-		return fmt.Errorf("failed to abort backup: %w", err)
+	if err := shouldAbort(exists, backupMetadata, backupOptions); err != nil {
+		return err
 	}
 	return m.abortBackup(vmi, backupMetadata)
+}
+
+func shouldAbort(exists bool, backupMetadata api.BackupMetadata, backupOptions *backupv1.BackupOptions) error {
+	const failedAbort = "failed to abort backup: %s"
+	if !exists || backupMetadata.Name == "" {
+		return fmt.Errorf(failedAbort, "could not find ongoing backup")
+	}
+	if backupMetadata.StartTimestamp == nil {
+		return fmt.Errorf(failedAbort, "backup did not start yet")
+	}
+	if backupMetadata.Name != backupOptions.BackupName || !backupMetadata.StartTimestamp.Equal(backupOptions.BackupStartTime) {
+		return fmt.Errorf(failedAbort, "requested backup differs from ongoing one")
+	}
+	if backupMetadata.Completed {
+		return fmt.Errorf(failedAbort, "backup already completed")
+	}
+	return nil
 }
 
 func (m *StorageManager) abortBackup(vmi *v1.VirtualMachineInstance, backupMetadata api.BackupMetadata) error {
@@ -398,49 +385,6 @@ func (m *StorageManager) abortBackup(vmi *v1.VirtualMachineInstance, backupMetad
 	}
 
 	log.Log.Object(vmi).Info("backup job abort initiated successfully")
-	return nil
-}
-
-func (m *StorageManager) ExportVirtualMachineBackup(backupOptions *backupv1.BackupOptions) error {
-	backupMetadata, exists := m.metadataCache.Backup.Load()
-	if err := checkBackupEligibility(exists, backupMetadata, backupOptions); err != nil {
-		return err
-	}
-	return m.initiateBackupTunnel(backupOptions)
-}
-
-func (m *StorageManager) initiateBackupTunnel(backupOptions *backupv1.BackupOptions) error {
-	m.backupTunnelMu.Lock()
-	defer m.backupTunnelMu.Unlock()
-
-	backupSock := filepath.Join(pullBackupSocketDir, pullBackupSocketName)
-	if _, err := os.Stat(backupSock); err != nil {
-		return fmt.Errorf("cannot initialize backup tunnel: %w", err)
-	}
-
-	if m.activeBackupTunnel != nil {
-		if m.activeBackupTunnel.IsMatch(backupOptions.BackupName, backupOptions.BackupStartTime) {
-			return nil
-		}
-		m.activeBackupTunnel.Stop()
-	}
-
-	tunnel := newBackupTunnelManager(
-		*backupOptions.ExportServerAddr,
-		*backupOptions.ExportServerName,
-		backupSock,
-		*backupOptions.CACert,
-		*backupOptions.BackupCert,
-		*backupOptions.BackupKey,
-		backupOptions.BackupName,
-		backupOptions.BackupStartTime,
-	)
-	if err := tunnel.Start(); err != nil {
-		return fmt.Errorf("failed to initialize backup tunnel: %w", err)
-	}
-
-	m.activeBackupTunnel = tunnel
-
 	return nil
 }
 
@@ -527,16 +471,11 @@ func findDisksWithCheckpointBitmap(dom cli.VirDomain, checkpointName string) (*a
 		return nil, nil, fmt.Errorf("failed to get domain disks: %v", err)
 	}
 
-	bitmapsByFile, err := queryBitmaps(dom)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to query bitmaps: %v", err)
-	}
-
 	checkpointDisks := &api.CheckpointDisks{}
 	var disksWithoutBitmap []string
 
 	for _, disk := range disks {
-		if disk.Target.Device == "" || !DiskHasDataStore(&disk) {
+		if disk.Target.Device == "" || disk.Source.DataStore == nil {
 			continue
 		}
 		if disk.Source.File == "" {
@@ -544,7 +483,12 @@ func findDisksWithCheckpointBitmap(dom cli.VirDomain, checkpointName string) (*a
 			continue
 		}
 
-		if hasBitmap(bitmapsByFile, disk.Source.File, checkpointName) {
+		diskInfo, err := getDiskInfoWithForceShare(disk.Source.File)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get disk info for %s at %s: %v", disk.Target.Device, disk.Source.File, err)
+		}
+
+		if diskInfo.HasBitmap(checkpointName) {
 			checkpointDisks.Disks = append(checkpointDisks.Disks, api.CheckpointDisk{
 				Name:       disk.Target.Device,
 				Checkpoint: "bitmap",
@@ -555,71 +499,4 @@ func findDisksWithCheckpointBitmap(dom cli.VirDomain, checkpointName string) (*a
 	}
 
 	return checkpointDisks, disksWithoutBitmap, nil
-}
-
-func hasBitmap(bitmapsByFile map[string][]qmpBitmapInfo, filePath, bitmapName string) bool {
-	bitmaps, ok := bitmapsByFile[filePath]
-	if !ok {
-		return false
-	}
-	for _, bm := range bitmaps {
-		if bm.Name == bitmapName {
-			return true
-		}
-	}
-	return false
-}
-
-type qmpBitmapInfo struct {
-	Name string `json:"name"`
-}
-
-type qmpBlockNodeInfo struct {
-	File         string          `json:"file,omitempty"`
-	DirtyBitmaps []qmpBitmapInfo `json:"dirty-bitmaps,omitempty"`
-}
-
-type qmpQueryBlockNodesResponse struct {
-	Return []qmpBlockNodeInfo `json:"return"`
-}
-
-// queryBitmaps queries QEMU for bitmap information via QMP.
-// Returns a map of file path to list of bitmaps on that file.
-// This is used instead of qemu-img info because qemu-img info doesn't see
-// updated bitmap state unless the VM was shutdown.
-var queryBitmaps = func(dom cli.VirDomain) (map[string][]qmpBitmapInfo, error) {
-	output, err := dom.QemuMonitorCommand(qmpQueryBlockNodesCmd, libvirt.DOMAIN_QEMU_MONITOR_COMMAND_DEFAULT)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute QMP query-named-block-nodes: %w", err)
-	}
-
-	var resp qmpQueryBlockNodesResponse
-	if err := json.Unmarshal([]byte(output), &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse QMP response: %w", err)
-	}
-
-	result := make(map[string][]qmpBitmapInfo)
-	for _, node := range resp.Return {
-		if node.File != "" && len(node.DirtyBitmaps) > 0 {
-			result[node.File] = append(result[node.File], node.DirtyBitmaps...)
-		}
-	}
-
-	return result, nil
-}
-
-func checkBackupEligibility(exists bool, backupMetadata api.BackupMetadata, backupOptions *backupv1.BackupOptions) error {
-	if !exists || backupMetadata.Name == "" {
-		return fmt.Errorf("could not find ongoing backup")
-	}
-	if backupMetadata.StartTimestamp == nil {
-		return fmt.Errorf("backup did not start yet")
-	}
-	if backupMetadata.Name != backupOptions.BackupName || !backupMetadata.StartTimestamp.Equal(backupOptions.BackupStartTime) {
-		return fmt.Errorf("requested backup differs from ongoing one")
-	}
-	if backupMetadata.Completed {
-		return fmt.Errorf("backup already completed")
-	}
-	return nil
 }
