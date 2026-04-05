@@ -17,6 +17,7 @@ import (
 	"kubevirt.io/client-go/kubecli"
 
 	"kubevirt.io/kubevirt/pkg/util/cluster"
+	"kubevirt.io/kubevirt/pkg/virt-config/featuregate"
 
 	"kubevirt.io/kubevirt/tests/framework/kubevirt"
 	"kubevirt.io/kubevirt/tests/libkubevirt"
@@ -55,19 +56,8 @@ func Has2MiHugepages(node *k8sv1.Node) bool {
 func HasFeature(feature string) bool {
 	virtClient := kubevirt.Client()
 
-	var featureGates []string
 	kv := libkubevirt.GetCurrentKv(virtClient)
-	if kv.Spec.Configuration.DeveloperConfiguration != nil {
-		featureGates = kv.Spec.Configuration.DeveloperConfiguration.FeatureGates
-	}
-
-	for _, fg := range featureGates {
-		if fg == feature {
-			return true
-		}
-	}
-
-	return false
+	return featuregate.IsFeatureGateEnabled(feature, kv.Spec.Configuration.DeveloperConfiguration)
 }
 
 func GetKubernetesVersion() (string, error) {
