@@ -1,6 +1,8 @@
 package checks
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -9,8 +11,10 @@ import (
 	"github.com/onsi/gomega"
 
 	k8sv1 "k8s.io/api/core/v1"
+	k8sversion "k8s.io/apimachinery/pkg/version"
 
 	v1 "kubevirt.io/api/core/v1"
+	"kubevirt.io/client-go/kubecli"
 
 	"kubevirt.io/kubevirt/pkg/util/cluster"
 
@@ -64,6 +68,24 @@ func HasFeature(feature string) bool {
 	}
 
 	return false
+}
+
+func GetKubernetesVersion() (string, error) {
+	var info k8sversion.Info
+	virtClient, err := kubecli.GetKubevirtClient()
+	if err != nil {
+		return "", err
+	}
+	response, err := virtClient.RestClient().Get().AbsPath("/version").DoRaw(context.Background())
+	if err != nil {
+		return "", err
+	}
+	if err := json.Unmarshal(response, &info); err != nil {
+		return "", err
+	}
+	curVersion := strings.Split(info.GitVersion, "+")[0]
+	curVersion = strings.Trim(curVersion, "v")
+	return curVersion, nil
 }
 
 func IsSEVCapable(node *k8sv1.Node, sevLabel string) bool {
