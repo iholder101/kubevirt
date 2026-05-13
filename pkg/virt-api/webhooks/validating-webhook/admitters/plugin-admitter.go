@@ -21,12 +21,17 @@ package admitters
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	"kubevirt.io/api/plugin"
+	pluginv1alpha1 "kubevirt.io/api/plugin/v1alpha1"
 
+	celutil "kubevirt.io/kubevirt/pkg/plugins/cel"
 	webhookutils "kubevirt.io/kubevirt/pkg/util/webhooks"
 	validating_webhooks "kubevirt.io/kubevirt/pkg/util/webhooks/validating-webhooks"
 	virtconfig "kubevirt.io/kubevirt/pkg/virt-config"
@@ -52,5 +57,79 @@ func (admitter *PluginAdmitter) Admit(_ context.Context, ar *admissionv1.Admissi
 		return webhookutils.ToAdmissionResponseError(fmt.Errorf("Plugins feature gate is not enabled"))
 	}
 
-	return validating_webhooks.NewPassingAdmissionResponse()
+	raw := ar.Request.Object.Raw
+	p := &pluginv1alpha1.Plugin{}
+	if err := json.Unmarshal(raw, p); err != nil {
+		return webhookutils.ToAdmissionResponseError(err)
+	}
+
+	causes := validatePlugin(p)
+	resp := validating_webhooks.NewPassingAdmissionResponse()
+	if len(causes) > 0 {
+		resp.Allowed = false
+		resp.Result = &metav1.Status{
+			Message: causes[0].Message,
+			Reason:  metav1.StatusReasonInvalid,
+			Details: &metav1.StatusDetails{
+				Causes: causes,
+			},
+		}
+	}
+	return resp
+}
+
+func validatePlugin(p *pluginv1alpha1.Plugin) []metav1.StatusCause {
+	var causes []metav1.StatusCause
+	specPath := field.NewPath("spec")
+
+	if hasCELExpressions(p) {
+		eval, err := celutil.NewDomainHookEvaluator()
+		if err != nil {
+			return []metav1.StatusCause{{
+				Type:    metav1.CauseTypeFieldValueInvalid,
+				Message: fmt.Sprintf("failed to create CEL evaluator: %s", err),
+				Field:   specPath.Child("domainHooks").String(),
+			}}
+		}
+		for i, dh := range p.Spec.DomainHooks {
+			causes = append(causes, validateDomainHookCEL(eval, dh, specPath.Child("domainHooks").Index(i))...)
+		}
+	}
+
+	return causes
+}
+
+func hasCELExpressions(p *pluginv1alpha1.Plugin) bool {
+	for _, dh := range p.Spec.DomainHooks {
+		if (dh.CEL != nil && dh.CEL.Expression != "") || dh.Condition != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func validateDomainHookCEL(eval *celutil.DomainHookEvaluator, dh pluginv1alpha1.DomainHook, dhPath *field.Path) []metav1.StatusCause {
+	var causes []metav1.StatusCause
+
+	if dh.CEL != nil && dh.CEL.Expression != "" {
+		if err := eval.CompileMutation(dh.CEL.Expression); err != nil {
+			causes = append(causes, metav1.StatusCause{
+				Type:    metav1.CauseTypeFieldValueInvalid,
+				Message: fmt.Sprintf("invalid CEL mutation expression: %s", err),
+				Field:   dhPath.Child("cel", "expression").String(),
+			})
+		}
+	}
+
+	if dh.Condition != "" {
+		if err := eval.CompileCondition(dh.Condition); err != nil {
+			causes = append(causes, metav1.StatusCause{
+				Type:    metav1.CauseTypeFieldValueInvalid,
+				Message: fmt.Sprintf("invalid CEL condition expression: %s", err),
+				Field:   dhPath.Child("condition").String(),
+			})
+		}
+	}
+
+	return causes
 }
