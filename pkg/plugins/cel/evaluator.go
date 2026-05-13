@@ -108,6 +108,10 @@ func NewEvaluator(opts ...Option) (*Evaluator, error) {
 	}, nil
 }
 
+func (e *Evaluator) Env() *cel.Env {
+	return e.env
+}
+
 func (e *Evaluator) CompileCondition(expr string) error {
 	_, err := e.compile(expr)
 	return err
