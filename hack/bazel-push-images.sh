@@ -41,6 +41,7 @@ default_targets="
     disks-images-provider
     libguestfs-tools
     test-helpers
+    nfs-server
 "
 
 # Add additional images for s390x only

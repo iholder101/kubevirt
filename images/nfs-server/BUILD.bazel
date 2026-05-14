@@ -1,0 +1,30 @@
+load("@rules_oci//oci:defs.bzl", "oci_image")
+load("@rules_pkg//:pkg.bzl", "pkg_tar")
+
+pkg_tar(
+    name = "entrypoint-tar",
+    srcs = ["entrypoint.sh"],
+    mode = "0755",
+    package_dir = "/",
+)
+
+oci_image(
+    name = "nfs-server-image",
+    base = "//images:kubevirt-testing-base",
+    entrypoint = ["/entrypoint.sh"],
+    tars = select({
+        "@io_bazel_rules_go//go/platform:linux_arm64": [
+            "//rpm:nfs-server_aarch64",
+            ":entrypoint-tar",
+        ],
+        "@io_bazel_rules_go//go/platform:linux_s390x": [
+            "//rpm:nfs-server_s390x",
+            ":entrypoint-tar",
+        ],
+        "//conditions:default": [
+            "//rpm:nfs-server_x86_64",
+            ":entrypoint-tar",
+        ],
+    }),
+    visibility = ["//visibility:public"],
+)

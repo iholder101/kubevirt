@@ -30,8 +30,10 @@ other_images_default="
     //cmd/test-helpers:test-helpers-image
     //containerimages:alpine-container-disk-image
     //containerimages:fedora-with-test-tooling
+    //images:kubevirt-testing-base
     //images/disks-images-provider:disks-images-provider-image
     //images/vm-killer:vm-killer-image
+    //images/nfs-server:nfs-server-image
 "
 
 other_images_x86_64_aarch64="
