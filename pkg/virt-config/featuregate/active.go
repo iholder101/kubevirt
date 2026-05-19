@@ -223,6 +223,13 @@ const (
 	// The VGPULiveMigration fg enables the vGPU hook to run for vGPU live migrations, allowing the
 	// target XML's mdev UUID to be mutated.
 	VGPULiveMigration = "VGPULiveMigration"
+
+	// Owner: @iholder101
+	// Alpha: v1.9.0
+	//
+	// Plugins enables the Plugin CRD for declarative VM extension
+	// via domain hooks, node hooks, and admission references (VEP-190).
+	PluginsGate = "Plugins"
 )
 
 func init() {
@@ -268,4 +275,5 @@ func init() {
 	RegisterFeatureGate(FeatureGate{Name: ReservedOverheadMemlock, State: Alpha})
 	RegisterFeatureGate(FeatureGate{Name: OptOutRoleAggregation, State: Alpha})
 	RegisterFeatureGate(FeatureGate{Name: VGPULiveMigration, State: Alpha})
+	RegisterFeatureGate(FeatureGate{Name: PluginsGate, State: Alpha})
 }
