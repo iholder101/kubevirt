@@ -15,7 +15,6 @@ import (
 	netlink "github.com/vishvananda/netlink"
 	gomock "go.uber.org/mock/gomock"
 	v1 "kubevirt.io/api/core/v1"
-
 	cache "kubevirt.io/kubevirt/pkg/network/cache"
 )
 

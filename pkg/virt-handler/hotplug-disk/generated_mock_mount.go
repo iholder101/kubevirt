@@ -15,7 +15,6 @@ import (
 	gomock "go.uber.org/mock/gomock"
 	types "k8s.io/apimachinery/pkg/types"
 	v1 "kubevirt.io/api/core/v1"
-
 	cgroup "kubevirt.io/kubevirt/pkg/virt-handler/cgroup"
 )
 

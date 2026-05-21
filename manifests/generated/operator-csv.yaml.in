@@ -1103,6 +1103,19 @@ spec:
           - watch
           - deletecollection
         - apiGroups:
+          - plugin.kubevirt.io
+          resources:
+          - plugins
+          verbs:
+          - get
+          - delete
+          - create
+          - update
+          - patch
+          - list
+          - watch
+          - deletecollection
+        - apiGroups:
           - export.kubevirt.io
           resources:
           - virtualmachineexports

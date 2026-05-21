@@ -1,7 +1,7 @@
 package components
 
 var CRDsValidation map[string]string = map[string]string{
-	"datavolumetemplatespec": `openAPIV3Schema:
+ "datavolumetemplatespec" : `openAPIV3Schema:
   nullable: true
   properties:
     apiVersion:
@@ -636,7 +636,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"kubevirt": `openAPIV3Schema:
+ "kubevirt" : `openAPIV3Schema:
   description: KubeVirt represents the object deploying all KubeVirt resources
   properties:
     apiVersion:
@@ -4070,7 +4070,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"migrationpolicy": `openAPIV3Schema:
+ "migrationpolicy" : `openAPIV3Schema:
   description: MigrationPolicy holds migration policy (i.e. configurations) to apply
     to a VM or group of VMs
   properties:
@@ -4129,7 +4129,188 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachine": `openAPIV3Schema:
+ "plugin" : `openAPIV3Schema:
+  description: |-
+    Plugin defines a KubeVirt extension that can modify VM domain XML,
+    hook into VM lifecycle events, and reference admission objects.
+  properties:
+    apiVersion:
+      description: |-
+        APIVersion defines the versioned schema of this representation of an object.
+        Servers should convert recognized schemas to the latest internal value, and
+        may reject unrecognized values.
+        More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+      type: string
+    kind:
+      description: |-
+        Kind is a string value representing the REST resource this object represents.
+        Servers may infer this from the endpoint the client submits requests to.
+        Cannot be updated.
+        In CamelCase.
+        More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+      type: string
+    metadata:
+      type: object
+    spec:
+      description: Spec defines the plugin's hooks and admission references.
+      properties:
+        domainHooks:
+          description: DomainHooks defines hooks that modify the libvirt domain XML.
+          items:
+            description: |-
+              DomainHook defines a hook that modifies the libvirt domain XML.
+              Exactly one of cel or sidecar must be specified.
+            properties:
+              cel:
+                description: CEL defines a CEL expression that transforms the domain
+                  XML.
+                properties:
+                  expression:
+                    description: Expression is the CEL expression applied to the domain
+                      XML.
+                    minLength: 1
+                    type: string
+                required:
+                - expression
+                type: object
+              condition:
+                description: Condition is a CEL expression that determines whether
+                  this hook applies to a given VM.
+                type: string
+              failureStrategy:
+                description: FailureStrategy specifies how to handle hook failures
+                  (Fail or Ignore).
+                type: string
+              sidecar:
+                description: Sidecar defines a sidecar-based hook that transforms
+                  the domain XML via a Unix socket.
+                properties:
+                  socketPath:
+                    description: SocketPath is the path to the Unix socket used to
+                      communicate with the sidecar.
+                    minLength: 1
+                    type: string
+                required:
+                - socketPath
+                type: object
+              timeout:
+                description: Timeout specifies the maximum duration to wait for the
+                  hook to complete.
+                type: string
+            type: object
+          type: array
+          x-kubernetes-list-type: atomic
+        mutatingAdmissionPolicies:
+          description: MutatingAdmissionPolicies references MutatingAdmissionPolicy
+            objects managed by the plugin.
+          items:
+            description: AdmissionReference is a reference to an admission object
+              by name.
+            properties:
+              name:
+                description: Name is the name of the admission object.
+                minLength: 1
+                type: string
+            required:
+            - name
+            type: object
+          type: array
+          x-kubernetes-list-type: atomic
+        mutatingAdmissionWebhooks:
+          description: MutatingAdmissionWebhooks references MutatingWebhookConfiguration
+            objects managed by the plugin.
+          items:
+            description: AdmissionReference is a reference to an admission object
+              by name.
+            properties:
+              name:
+                description: Name is the name of the admission object.
+                minLength: 1
+                type: string
+            required:
+            - name
+            type: object
+          type: array
+          x-kubernetes-list-type: atomic
+        nodeHooks:
+          description: NodeHooks defines hooks that execute during VM lifecycle events.
+          items:
+            description: NodeHook defines a hook that executes during VM lifecycle
+              events on the node.
+            properties:
+              condition:
+                description: Condition is a CEL expression that determines whether
+                  this hook applies to a given VM.
+                type: string
+              failureStrategy:
+                description: FailureStrategy specifies how to handle hook failures
+                  (Fail or Ignore).
+                type: string
+              permittedHooks:
+                description: PermittedHooks lists the VM lifecycle events this hook
+                  handles.
+                items:
+                  description: NodeHookPoint identifies a VM lifecycle event for node-level
+                    hooks.
+                  type: string
+                minItems: 1
+                type: array
+                x-kubernetes-list-type: atomic
+              socket:
+                description: Socket is the path to the Unix socket for hook communication.
+                minLength: 1
+                type: string
+              timeout:
+                description: Timeout specifies the maximum duration to wait for the
+                  hook to complete.
+                type: string
+            required:
+            - permittedHooks
+            - socket
+            type: object
+          type: array
+          x-kubernetes-list-type: atomic
+        validatingAdmissionPolicies:
+          description: ValidatingAdmissionPolicies references ValidatingAdmissionPolicy
+            objects managed by the plugin.
+          items:
+            description: AdmissionReference is a reference to an admission object
+              by name.
+            properties:
+              name:
+                description: Name is the name of the admission object.
+                minLength: 1
+                type: string
+            required:
+            - name
+            type: object
+          type: array
+          x-kubernetes-list-type: atomic
+        validatingAdmissionWebhooks:
+          description: ValidatingAdmissionWebhooks references ValidatingWebhookConfiguration
+            objects managed by the plugin.
+          items:
+            description: AdmissionReference is a reference to an admission object
+              by name.
+            properties:
+              name:
+                description: Name is the name of the admission object.
+                minLength: 1
+                type: string
+            required:
+            - name
+            type: object
+          type: array
+          x-kubernetes-list-type: atomic
+      type: object
+    status:
+      description: Status reflects the observed state of the plugin.
+      type: object
+  required:
+  - spec
+  type: object
+`,
+ "virtualmachine" : `openAPIV3Schema:
   description: |-
     VirtualMachine handles the VirtualMachines that are not running
     or are in a stopped state
@@ -9186,7 +9367,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachinebackup": `openAPIV3Schema:
+ "virtualmachinebackup" : `openAPIV3Schema:
   description: VirtualMachineBackup defines the operation of backing up a VM
   properties:
     apiVersion:
@@ -9396,7 +9577,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachinebackuptracker": `openAPIV3Schema:
+ "virtualmachinebackuptracker" : `openAPIV3Schema:
   description: |-
     VirtualMachineBackupTracker defines the way to track the latest checkpoint of
     a backup solution for a vm
@@ -9508,7 +9689,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachineclone": `openAPIV3Schema:
+ "virtualmachineclone" : `openAPIV3Schema:
   description: VirtualMachineClone is a CRD that clones one VM into another.
   properties:
     apiVersion:
@@ -9696,7 +9877,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachineclusterinstancetype": `openAPIV3Schema:
+ "virtualmachineclusterinstancetype" : `openAPIV3Schema:
   description: VirtualMachineClusterInstancetype is a cluster scoped version of VirtualMachineInstancetype
     resource.
   properties:
@@ -9980,7 +10161,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachineclusterpreference": `openAPIV3Schema:
+ "virtualmachineclusterpreference" : `openAPIV3Schema:
   description: VirtualMachineClusterPreference is a cluster scoped version of the
     VirtualMachinePreference resource.
   properties:
@@ -10690,7 +10871,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachineexport": `openAPIV3Schema:
+ "virtualmachineexport" : `openAPIV3Schema:
   description: VirtualMachineExport defines the operation of exporting a VM source
   properties:
     apiVersion:
@@ -11027,7 +11208,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachineinstance": `openAPIV3Schema:
+ "virtualmachineinstance" : `openAPIV3Schema:
   description: VirtualMachineInstance is *the* VirtualMachineInstance Definition.
     It represents a virtual machine in the runtime environment of kubernetes.
   properties:
@@ -15534,7 +15715,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachineinstancemigration": `openAPIV3Schema:
+ "virtualmachineinstancemigration" : `openAPIV3Schema:
   description: |-
     VirtualMachineInstanceMigration represents the object tracking a VMI's migration
     to another host in the cluster
@@ -15978,7 +16159,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachineinstancepreset": `openAPIV3Schema:
+ "virtualmachineinstancepreset" : `openAPIV3Schema:
   description: |-
     Deprecated for removal in v2, please use VirtualMachineInstanceType and VirtualMachinePreference instead.
 
@@ -17381,7 +17562,7 @@ var CRDsValidation map[string]string = map[string]string{
       type: object
   type: object
 `,
-	"virtualmachineinstancereplicaset": `openAPIV3Schema:
+ "virtualmachineinstancereplicaset" : `openAPIV3Schema:
   description: VirtualMachineInstance is *the* VirtualMachineInstance Definition.
     It represents a virtual machine in the runtime environment of kubernetes.
   properties:
@@ -21137,7 +21318,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachineinstancetype": `openAPIV3Schema:
+ "virtualmachineinstancetype" : `openAPIV3Schema:
   description: |-
     VirtualMachineInstancetype resource contains quantitative and resource related VirtualMachine configuration
     that can be used by multiple VirtualMachine resources.
@@ -21422,7 +21603,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachinepool": `openAPIV3Schema:
+ "virtualmachinepool" : `openAPIV3Schema:
   description: |-
     VirtualMachinePool resource contains a VirtualMachine configuration
     that can be used to replicate multiple VirtualMachine resources.
@@ -26288,7 +26469,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachinepreference": `openAPIV3Schema:
+ "virtualmachinepreference" : `openAPIV3Schema:
   description: VirtualMachinePreference resource contains optional preferences related
     to the VirtualMachine.
   properties:
@@ -26998,7 +27179,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachinerestore": `openAPIV3Schema:
+ "virtualmachinerestore" : `openAPIV3Schema:
   description: VirtualMachineRestore defines the operation of restoring a VM
   properties:
     apiVersion:
@@ -27165,7 +27346,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachinesnapshot": `openAPIV3Schema:
+ "virtualmachinesnapshot" : `openAPIV3Schema:
   description: VirtualMachineSnapshot defines the operation of snapshotting a VM
   properties:
     apiVersion:
@@ -27329,7 +27510,7 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
-	"virtualmachinesnapshotcontent": `openAPIV3Schema:
+ "virtualmachinesnapshotcontent" : `openAPIV3Schema:
   description: VirtualMachineSnapshotContent contains the snapshot data
   properties:
     apiVersion:

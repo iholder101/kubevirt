@@ -15,7 +15,6 @@ import (
 
 	gomock "go.uber.org/mock/gomock"
 	v1 "kubevirt.io/api/core/v1"
-
 	cloudinit "kubevirt.io/kubevirt/pkg/cloud-init"
 	api "kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/api"
 )
