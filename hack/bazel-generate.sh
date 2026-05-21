@@ -4,9 +4,10 @@ source hack/common.sh
 source hack/bootstrap.sh
 source hack/config.sh
 
-# remove libvirt and libnbd BUILD files to regenerate them each time
+# remove libvirt, libnbd, and cel.dev/expr BUILD files to regenerate them each time
 rm -f vendor/libvirt.org/go/libvirt/BUILD.bazel
 rm -f vendor/libguestfs.org/libnbd/BUILD.bazel
+rm -f vendor/cel.dev/expr/BUILD.bazel
 
 # generate BUILD files
 bazel run \
@@ -22,6 +23,11 @@ bazel run \
 bazel run \
     --config=${ARCHITECTURE} ${BAZEL_CS_CONFIG} \
     -- :buildozer 'add cdeps //:libnbd-libs' //vendor/libguestfs.org/libnbd/:go_default_library
+
+# fix cel.dev/expr protobuf deps to use vendored paths
+bazel run \
+    --config=${ARCHITECTURE} ${BAZEL_CS_CONFIG} \
+    -- :buildozer 'substitute deps @org_golang_google_protobuf//(.+) //vendor/google.golang.org/protobuf/$1:go_default_library' //vendor/cel.dev/expr:go_default_library
 
 # align BAZEL files to a single format
 bazel run \
